@@ -1,5 +1,0 @@
-c1d2df23b26f24e53aaff9ccee5ea2b60db2dff62abecd229ace774c8feeb160  T650Bridge-Admin-Setup-v1.1.6.msi
-c1d2df23b26f24e53aaff9ccee5ea2b60db2dff62abecd229ace774c8feeb160  T650Bridge-Admin-Setup.msi
-edad329698f6112c8a5ab18ad0bcc31ce9b244129a89eeb6d5c73fc973399128  T650Bridge-PTP-Setup-v1.1.6.msi
-edad329698f6112c8a5ab18ad0bcc31ce9b244129a89eeb6d5c73fc973399128  T650Bridge-PTP-Setup.msi
-edad329698f6112c8a5ab18ad0bcc31ce9b244129a89eeb6d5c73fc973399128  T650Bridge-Setup.msi
