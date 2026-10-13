@@ -49,13 +49,36 @@ class Program
             }
         }
 
+        const string MutexName = @"Global\LogitechT650Bridge_SingleInstanceMutex";
+        using var singleMutex = new Mutex(true, MutexName, out bool isOnlyInstance);
+        if (!isOnlyInstance)
+        {
+            Console.WriteLine("\n[Notice] Another instance of Logitech T650 Bridge is already running. Exiting.");
+            return;
+        }
+
+        bool enableGestures = !args.Contains("--no-gesture");
+        bool enableNotifications = args.Contains("--notifications") || args.Contains("--balloon");
+        bool verboseDiag = args.Contains("--diag") || args.Contains("--test") || (!args.Contains("--silent") && !args.Contains("--tray"));
+        bool silentStartup = args.Contains("--silent") || args.Contains("--tray") || args.Contains("--minimized");
+        bool autoHide = !args.Contains("--console") && !args.Contains("--no-hide");
+        bool testOnly = args.Contains("--test-only");
+
+        using var tray = new TrayIconManager(adminMode, canBypassUipi, startHidden: silentStartup || testOnly);
+        tray.EnableNotifications = enableNotifications;
+        tray.UpdateState(DeviceConnectionState.SearchingForReceiver, isPaused: !enableGestures);
+
+        using var logWriter = new BridgeConsoleRedirectionWriter(
+            Console.Out,
+            tray.AppendLog,
+            tray.UpdateTelemetry);
+        Console.SetOut(logWriter);
+
         string edition = adminMode ? "Standalone Admin Edition" : "Precision Touchpad (PTP) Edition";
 
-        Console.ForegroundColor = ConsoleColor.Cyan;
         Console.WriteLine("===============================================================");
         Console.WriteLine($" Logitech T650 Bridge v{version} - {edition} ");
         Console.WriteLine("===============================================================");
-        Console.ResetColor();
 
         Console.WriteLine($"[Version] Bridge Daemon v{version} ({edition})");
         string securityStatus;
@@ -71,30 +94,16 @@ class Program
         {
             Console.WriteLine("[Security] Notice: Run with UIAccess / Administrator or install Virtual PTP Driver to control Admin windows.");
         }
-        bool enableGestures = !args.Contains("--no-gesture");
-        bool enableNotifications = args.Contains("--notifications") || args.Contains("--balloon");
-        bool verboseDiag = args.Contains("--diag") || args.Contains("--test") || (!args.Contains("--silent") && !args.Contains("--tray"));
 
         Console.WriteLine($"[Config] Gestures Enabled: {enableGestures}");
         Console.WriteLine($"[Config] Desktop Notifications: {(enableNotifications ? "Enabled" : "Disabled (Quiet)")}");
-        const string MutexName = @"Global\LogitechT650Bridge_SingleInstanceMutex";
-        using var singleMutex = new Mutex(true, MutexName, out bool isOnlyInstance);
-        if (!isOnlyInstance)
-        {
-            Console.ForegroundColor = ConsoleColor.Yellow;
-            Console.WriteLine("\n[Notice] Another instance of Logitech T650 Bridge is already running. Exiting.");
-            Console.ResetColor();
-            return;
-        }
 
         AttachToInteractiveDesktop();
 
         bool hasDesktop = GetCursorPos(out var curPos);
         Console.WriteLine($"[Desktop] Interactive winsta0 access: {(hasDesktop ? $"OK (Cursor at {curPos.X},{curPos.Y})" : "Limited")}");
 
-        if (args.Contains("--test-only")) return;
-
-        Console.WriteLine("Press Ctrl+C to terminate.\n");
+        if (testOnly) return;
 
         using var receiver = new UnifyingReceiver();
         var assembler = new FrameAssembler();
@@ -105,18 +114,14 @@ class Program
 
         gestureEngine.GestureTriggered += gesture =>
         {
-            Console.ForegroundColor = ConsoleColor.Yellow;
             Console.WriteLine($"\n>>> {gesture} <<<");
-            Console.ResetColor();
         };
 
         using var ptpDriver = new PtpDriverClient();
         bool ptpConnected = ptpDriver.Connect();
         if (ptpConnected)
         {
-            Console.ForegroundColor = ConsoleColor.Magenta;
             Console.WriteLine("[Tier 2] Connected to Virtual PTP Driver! Injecting directly into Windows Touch Stack.");
-            Console.ResetColor();
         }
         else
         {
@@ -144,8 +149,8 @@ class Program
                 gestureEngine.ProcessFrame(frame);
             }
 
-            // 3. Diagnostic console output
-            if (verboseDiag)
+            // 3. Diagnostic log window telemetry output (active whenever log window is open)
+            if (!tray.IsConsoleHidden)
             {
                 var touching = frame.Contacts.Where(c => c.IsTouching).ToList();
                 string contactsInfo = touching.Count == 0 
@@ -154,28 +159,11 @@ class Program
 
                 string clickInfo = frame.PhysicalButtonPressed ? "[CLICK]" : "       ";
 
-                Console.Write($"\r[Frame #{frameIndex:D5}] Active: {touching.Count}/5 {clickInfo} | Contacts: {contactsInfo,-45}");
+                tray.UpdateTelemetry($"[Frame #{frameIndex:D5}] Active: {touching.Count}/5 {clickInfo} | Contacts: {contactsInfo}");
             }
         };
 
-        bool silentStartup = args.Contains("--silent") || args.Contains("--tray") || args.Contains("--minimized");
-        bool autoHide = !args.Contains("--console") && !args.Contains("--no-hide");
-
-        using var tray = new TrayIconManager(adminMode, canBypassUipi);
-        tray.EnableNotifications = enableNotifications;
-        tray.UpdateState(DeviceConnectionState.SearchingForReceiver, isPaused: !enableGestures);
-
-        if (silentStartup)
-        {
-            tray.HideConsole(notifyUser: false);
-        }
-
         using var cts = new CancellationTokenSource();
-        Console.CancelKeyPress += (s, e) =>
-        {
-            e.Cancel = true;
-            cts.Cancel();
-        };
 
         tray.ToggleStartStop += () =>
         {
@@ -207,30 +195,24 @@ class Program
             switch (state)
             {
                 case DeviceConnectionState.SearchingForReceiver:
-                    Console.ForegroundColor = ConsoleColor.Red;
                     Console.WriteLine("\n[Receiver] Waiting for Logitech Unifying receiver to be plugged in...");
-                    Console.ResetColor();
                     tray.ShowBalloon("Logitech T650", "Waiting for Logitech Unifying receiver USB dongle.", System.Windows.Forms.ToolTipIcon.Warning);
                     break;
 
                 case DeviceConnectionState.ReceiverConnectedWaitingForPad:
-                    Console.ForegroundColor = ConsoleColor.DarkYellow;
                     Console.WriteLine("\n[Receiver] Unifying receiver ready! Waiting for T650 Touchpad to power on...");
-                    Console.ResetColor();
                     tray.ShowBalloon("Logitech T650", "Unifying receiver connected. Turn on your T650 touchpad.", System.Windows.Forms.ToolTipIcon.Info);
                     break;
 
                 case DeviceConnectionState.TouchpadActive:
-                    Console.ForegroundColor = ConsoleColor.Green;
                     Console.WriteLine("\n[Active] T650 Multi-touch stream is live! Try touching, scrolling, or swiping on the pad.\n");
-                    Console.ResetColor();
 
                     if (!hasEverStreamed)
                     {
                         hasEverStreamed = true;
                         if (autoHide && !silentStartup && !tray.IsConsoleHidden)
                         {
-                            Console.WriteLine("[Tray] Pad connected and active! Minimizing console to system tray...");
+                            Console.WriteLine("[Tray] Pad connected and active! Hiding log window to system tray...");
                             Thread.Sleep(600);
                             tray.HideConsole(notifyUser: true);
                         }
@@ -245,51 +227,10 @@ class Program
 
         receiver.StartSupervisor();
 
-        Console.WriteLine("[Tray] Taskbar notification icon active. Right-click icon for start/stop & controls.");
-        Console.WriteLine("[Keys] Press 'r' anytime to re-wake/unlock | Press 'h' to hide/show console | Press 'q' to exit.\n");
+        Console.WriteLine("[Tray] Taskbar notification icon active. Double-click or right-click icon to open/hide log window.");
+        Console.WriteLine("[Keys] Press 'R' anytime to re-wake/unlock | Press 'H' or Esc to hide to tray | Press 'Q' to exit.\n");
 
-        bool canReadKey = false;
-        try
-        {
-            canReadKey = !Console.IsInputRedirected;
-        }
-        catch
-        {
-            canReadKey = false;
-        }
-
-        while (!cts.IsCancellationRequested)
-        {
-            if (canReadKey)
-            {
-                try
-                {
-                    if (Console.KeyAvailable)
-                    {
-                        var key = Console.ReadKey(intercept: true);
-                        if (key.Key == ConsoleKey.R)
-                        {
-                            Console.WriteLine("\n[User] Re-sending raw multi-touch unlock packet to T650...");
-                            receiver.UnlockRawMode();
-                        }
-                        else if (key.Key == ConsoleKey.H)
-                        {
-                            tray.ToggleConsoleWindow();
-                        }
-                        else if (key.Key == ConsoleKey.Q)
-                        {
-                            cts.Cancel();
-                            break;
-                        }
-                    }
-                }
-                catch (InvalidOperationException)
-                {
-                    canReadKey = false;
-                }
-            }
-            Thread.Sleep(50);
-        }
+        cts.Token.WaitHandle.WaitOne();
 
         Console.WriteLine("\nShutting down bridge daemon...");
     }

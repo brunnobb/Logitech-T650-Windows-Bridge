@@ -9,21 +9,8 @@ namespace T650Bridge.UI;
 
 public class TrayIconManager : IDisposable
 {
-    [DllImport("kernel32.dll")]
-    private static extern IntPtr GetConsoleWindow();
-
-    [DllImport("user32.dll")]
-    private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
-
-    [DllImport("user32.dll")]
-    private static extern bool IsWindowVisible(IntPtr hWnd);
-
     [DllImport("user32.dll", CharSet = CharSet.Auto)]
     private static extern bool DestroyIcon(IntPtr handle);
-
-    private const int SW_HIDE = 0;
-    private const int SW_SHOW = 5;
-    private const int SW_RESTORE = 9;
 
     private NotifyIcon? _notifyIcon;
     private ContextMenuStrip? _contextMenu;
@@ -33,16 +20,19 @@ public class TrayIconManager : IDisposable
     private ToolStripMenuItem? _notificationsItem;
     private ToolStripMenuItem? _toggleConsoleItem;
     private ToolStripMenuItem? _exitItem;
+    private LogWindowForm? _logWindow;
 
     private Thread? _uiThread;
     private readonly AutoResetEvent _uiReady = new(false);
+    private readonly List<string> _pendingLogs = new();
+    private readonly object _logLock = new();
 
     private Icon? _iconActive;
     private Icon? _iconPaused;
     private Icon? _iconDisconnected;
 
     public bool IsActive { get; private set; } = true;
-    public bool IsConsoleHidden { get; private set; } = false;
+    public bool IsConsoleHidden { get; private set; }
     public bool EnableNotifications { get; set; } = false;
 
     private readonly bool _isAdminMode;
@@ -52,10 +42,11 @@ public class TrayIconManager : IDisposable
     public event Action? RequestRewake;
     public event Action? RequestExit;
 
-    public TrayIconManager(bool isAdminMode = false, bool isElevated = false)
+    public TrayIconManager(bool isAdminMode = false, bool isElevated = false, bool startHidden = false)
     {
         _isAdminMode = isAdminMode;
         _isElevated = isElevated;
+        IsConsoleHidden = startHidden;
 
         _uiThread = new Thread(RunMessageLoop)
         {
@@ -159,8 +150,11 @@ public class TrayIconManager : IDisposable
 
         _contextMenu.Items.Add(new ToolStripSeparator());
 
-        // 4. Toggle Console Window (Show / Hide)
-        _toggleConsoleItem = new ToolStripMenuItem("🔲 Hide Console to Tray", null, (s, e) => ToggleConsoleWindow());
+        // 4. Toggle Console / Log Window (Show / Hide)
+        _toggleConsoleItem = new ToolStripMenuItem(
+            IsConsoleHidden ? "🔳 Show Log Window" : "🔲 Hide Log to Tray",
+            null,
+            (s, e) => ToggleConsoleWindow());
         _contextMenu.Items.Add(_toggleConsoleItem);
 
         _contextMenu.Items.Add(new ToolStripSeparator());
@@ -183,6 +177,39 @@ public class TrayIconManager : IDisposable
 
         _notifyIcon.DoubleClick += (s, e) => ToggleConsoleWindow();
 
+        string windowTitle = $"Logitech T650 Bridge v{version} {tag} — Diagnostic Log";
+        _logWindow = new LogWindowForm(windowTitle, _iconActive);
+        _logWindow.RequestRewake += () => RequestRewake?.Invoke();
+        _logWindow.RequestHideToTray += () => HideConsole(notifyUser: true);
+        _logWindow.RequestExit += () =>
+        {
+            RequestExit?.Invoke();
+            Application.ExitThread();
+        };
+
+        // Force handle creation so AppendLogLine works even while hidden
+        IntPtr logHandle = _logWindow.Handle;
+
+        lock (_logLock)
+        {
+            foreach (var pending in _pendingLogs)
+            {
+                _logWindow.AppendLogLine(pending);
+            }
+            _pendingLogs.Clear();
+        }
+
+        if (!IsConsoleHidden)
+        {
+            _logWindow.ShowInTaskbar = true;
+            _logWindow.Show();
+        }
+        else
+        {
+            _logWindow.ShowInTaskbar = false;
+            _logWindow.Hide();
+        }
+
         _uiReady.Set();
 
         Application.Run();
@@ -201,6 +228,31 @@ public class TrayIconManager : IDisposable
         {
             _invoker.BeginInvoke(action);
         }
+    }
+
+    public void AppendLog(string line)
+    {
+        lock (_logLock)
+        {
+            if (_logWindow == null)
+            {
+                _pendingLogs.Add(line);
+                return;
+            }
+        }
+
+        PostToUiThread(() =>
+        {
+            _logWindow?.AppendLogLine(line);
+        });
+    }
+
+    public void UpdateTelemetry(string telemetryText)
+    {
+        PostToUiThread(() =>
+        {
+            _logWindow?.UpdateTelemetry(telemetryText);
+        });
     }
 
     public void UpdateState(DeviceConnectionState state, bool isPaused)
@@ -260,6 +312,11 @@ public class TrayIconManager : IDisposable
                 _notifyIcon.Icon = targetIcon;
                 _notifyIcon.Text = SafeTooltipText(tooltip);
             }
+
+            if (_logWindow != null && !_logWindow.IsDisposed)
+            {
+                _logWindow.Icon = targetIcon;
+            }
         });
     }
 
@@ -317,44 +374,65 @@ public class TrayIconManager : IDisposable
 
     public void HideConsole(bool notifyUser = false)
     {
-        IntPtr hWnd = GetConsoleWindow();
-        if (hWnd == IntPtr.Zero) return;
-
-        ShowWindow(hWnd, SW_HIDE);
         IsConsoleHidden = true;
-        if (_toggleConsoleItem != null)
-            _toggleConsoleItem.Text = "🔳 Show Console Window";
+
+        PostToUiThread(() =>
+        {
+            if (_logWindow != null && !_logWindow.IsDisposed)
+            {
+                _logWindow.Hide();
+                _logWindow.ShowInTaskbar = false;
+            }
+
+            if (_toggleConsoleItem != null)
+            {
+                _toggleConsoleItem.Text = "🔳 Show Log Window";
+            }
+        });
 
         if (notifyUser && EnableNotifications)
         {
-            ShowBalloon("Logitech T650 Connected", "Gestures active! Minimized to tray. Double-click icon to open console.", ToolTipIcon.Info);
+            ShowBalloon("Logitech T650 Connected", "Gestures active! Minimized to tray. Double-click icon to open log window.", ToolTipIcon.Info);
         }
     }
 
     public void ShowConsole()
     {
-        IntPtr hWnd = GetConsoleWindow();
-        if (hWnd == IntPtr.Zero) return;
-
-        ShowWindow(hWnd, SW_RESTORE);
-        ShowWindow(hWnd, SW_SHOW);
         IsConsoleHidden = false;
-        if (_toggleConsoleItem != null)
-            _toggleConsoleItem.Text = "🔲 Hide Console to Tray";
+
+        PostToUiThread(() =>
+        {
+            if (_logWindow != null && !_logWindow.IsDisposed)
+            {
+                _logWindow.ShowInTaskbar = true;
+                if (!_logWindow.Visible)
+                {
+                    _logWindow.Show();
+                }
+                if (_logWindow.WindowState == FormWindowState.Minimized)
+                {
+                    _logWindow.WindowState = FormWindowState.Normal;
+                }
+                _logWindow.BringToFront();
+                _logWindow.Activate();
+            }
+
+            if (_toggleConsoleItem != null)
+            {
+                _toggleConsoleItem.Text = "🔲 Hide Log to Tray";
+            }
+        });
     }
 
     public void ToggleConsoleWindow()
     {
-        IntPtr hWnd = GetConsoleWindow();
-        if (hWnd == IntPtr.Zero) return;
-
-        if (IsWindowVisible(hWnd))
+        if (IsConsoleHidden)
         {
-            HideConsole(notifyUser: true);
+            ShowConsole();
         }
         else
         {
-            ShowConsole();
+            HideConsole(notifyUser: true);
         }
     }
 
@@ -368,6 +446,16 @@ public class TrayIconManager : IDisposable
 
     public void Dispose()
     {
+        PostToUiThread(() =>
+        {
+            if (_logWindow != null && !_logWindow.IsDisposed)
+            {
+                _logWindow.AllowShutdown();
+                _logWindow.Close();
+                _logWindow.Dispose();
+            }
+        });
+
         if (_notifyIcon != null)
         {
             _notifyIcon.Visible = false;
