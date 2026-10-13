@@ -14,8 +14,8 @@ param(
 $ErrorActionPreference = "Stop"
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
-$repoRoot = Resolve-Path (Join-Path $scriptDir "..\..")
-$bridgeProj = Join-Path $repoRoot "T650-Windows-PTP-Driver\T650Bridge\T650Bridge.csproj"
+$repoRoot = Resolve-Path (Join-Path $scriptDir "..")
+$bridgeProj = Join-Path $repoRoot "src\T650Bridge.csproj"
 $objDir = Join-Path $scriptDir "obj"
 $distDir = Join-Path $repoRoot "Dist"
 if (-not (Test-Path $distDir)) { New-Item -ItemType Directory -Path $distDir -Force | Out-Null }
@@ -45,8 +45,9 @@ if (-not (Test-Path $candle) -or -not (Test-Path $light)) {
     Exit 1
 }
 
-$sourceIco = Join-Path $repoRoot "T650-Windows-PTP-Driver\T650Bridge\T650.ico"
-$licenseRtf = Join-Path $scriptDir "..\License.rtf"
+$sourceIco = Join-Path $repoRoot "src\T650.ico"
+$licenseRtf = Join-Path $scriptDir "License.rtf"
+$sourceCert = Join-Path $repoRoot "Certificates\T650TestCert.cer"
 if (-not (Test-Path $objDir)) { New-Item -ItemType Directory -Path $objDir -Force | Out-Null }
 
 function Build-MsiPackage {
@@ -75,7 +76,6 @@ function Build-MsiPackage {
     }
 
     # Copy Test Certificate into publish directory so MSI can install it into Root/Publisher
-    $sourceCert = Join-Path $repoRoot "T650-Windows-PTP-Driver\VirtualPtpDriver\Package\T650TestCert.cer"
     if (Test-Path $sourceCert) {
         Copy-Item $sourceCert -Destination $flavorPublishDir -Force
     }
@@ -144,3 +144,12 @@ if ($Flavor -eq "Both" -or $Flavor -eq "Ptp") {
 if ($Flavor -eq "Both" -or $Flavor -eq "Admin") {
     Build-MsiPackage -FlavorName "Admin" -WxsFileName "T650Bridge-Admin.wxs" -OutputPrefix "T650Bridge-Admin"
 }
+
+# Update unified SHA256SUMS.txt
+$shaSumsPath = Join-Path $distDir "SHA256SUMS.txt"
+$shaLines = @()
+Get-ChildItem -Path "$distDir\*.msi" | Sort-Object Name | ForEach-Object {
+    $h = (Get-FileHash -Path $_.FullName -Algorithm SHA256).Hash.ToLower()
+    $shaLines += "$h  $($_.Name)"
+}
+$shaLines | Set-Content -Path $shaSumsPath -Encoding ascii

@@ -1,57 +1,21 @@
-# ==========================================
-# Logitech T650 Windows PTP Project .gitignore
-# ==========================================
-
-# Reference sub-projects / external clones
-logitec-t650-macos-driver/
-T650drivers/
-
 # Visual Studio & IDE files
 .vs/
 *.user
 *.suo
 *.userosscache
 *.sln.docstates
-*.opensdf
-*.sdf
-*.VC.db
-*.VC.opendb
 
-# Build Outputs (C# & C++)
+# Build Outputs (C#)
 [Bb]in/
 [Oo]bj/
-x64/
-x86/
-ARM64/
-Debug/
-Release/
-ipch/
-
-# Driver Build Artifacts & Packages
-*.sys
-*.cer
-*.cat
-_reboots.log
-*.wdf
-*.lastcodeanalysissucceeded
-DriverTest/
-devcon.exe
-T650-Windows-PTP-Driver/VirtualPtpDriver/Package/*.dll
-T650-Windows-PTP-Driver/VirtualPtpDriver/Package/*.cat
-T650-Windows-PTP-Driver/VirtualPtpDriver/Package/*.cer
-T650-Windows-PTP-Driver/VirtualPtpDriver/Package/devcon.exe
+publish/
+publish-*/
 
 # Logs & Temporary files
 *.log
-*.tlog
 *.tmp
 *.bak
 *.cache
-*.intermediate
-*.ilk
-*.pdb
-*.exp
-*.lib
 
 # OS generated files
 Thumbs.db
@@ -60,10 +24,6 @@ Desktop.ini
 $RECYCLE.BIN/
 .DS_Store
 
-# Installer & Distribution artifacts
-Dist/
-publish/
-publish-sc/
+# Installer intermediates
 *.wixobj
 *.wixpdb
-
