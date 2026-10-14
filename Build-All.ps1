@@ -1,13 +1,10 @@
 # ==============================================================================
 # Build Script: Compile, Sign, and Package Logitech T650 Bridge
-# Compiles both PTP Driver Client and Standalone Admin Editions
-# Usage: pwsh -File "Build-All.ps1" [-Version "1.1.6"]
+# Usage: pwsh -File "Build-All.ps1" [-Version "1.1.8"]
 # ==============================================================================
 
 param(
-    [string]$Version,
-    [ValidateSet("Both", "Ptp", "Admin")]
-    [string]$Flavor = "Both"
+    [string]$Version
 )
 
 $ErrorActionPreference = "Stop"
@@ -16,7 +13,7 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $repoRoot = Resolve-Path $scriptDir
 
 Write-Host "==========================================================" -ForegroundColor Cyan
-Write-Host " Building Logitech T650 Bridge (All Flavors)" -ForegroundColor Cyan
+Write-Host " Building Logitech T650 Bridge" -ForegroundColor Cyan
 Write-Host "==========================================================" -ForegroundColor Cyan
 
 # 1. Build .NET Solution
@@ -28,10 +25,10 @@ if ($LASTEXITCODE -ne 0) {
     Exit 1
 }
 
-# 2. Package WiX Installers
-Write-Host "`n[2/2] Packaging MSI Installers..." -ForegroundColor Yellow
+# 2. Package WiX Installer
+Write-Host "`n[2/2] Packaging MSI Installer..." -ForegroundColor Yellow
 $installerScript = Join-Path $repoRoot "Installer\Build-Bridge-Installer.ps1"
-$passArgs = @("-Flavor", $Flavor)
+$passArgs = @()
 if ($Version) {
     $passArgs += @("-Version", $Version)
 }

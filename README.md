@@ -9,19 +9,17 @@ While the T650 natively speaks Logitech's proprietary HID++ 2.0 protocol over th
 
 ---
 
-## Two Product Editions
+## Unified Application Architecture
 
-The project builds two specialized editions tailored for different system environments:
+The bridge is a single, unified high-performance application featuring:
 
-### 1. Precision Touchpad (PTP) Edition
-* **Target:** Systems with the [VirtualPTP Driver](https://github.com/brunnobb/VirtualPTP) installed.
-* **Mechanism:** Streams multi-touch frames over a high-speed Named Pipe (`\\.\pipe\T650VirtualPtpPipe`) directly into the Windows Touch Stack.
-* **Experience:** 100% native Windows Precision Touchpad experience: Configure two, three, and four-finger gestures directly in **Windows Settings $\rightarrow$ Bluetooth & devices $\rightarrow$ Touchpad**.
-
-### 2. Standalone Admin Edition (UIPI Bypass)
-* **Target:** Systems without test-signing enabled or where a virtual driver cannot be installed.
-* **Mechanism:** Synthesizes Windows multi-touch gesture events directly via `SendInput`.
-* **UIAccess Privilege:** Compiled with Microsoft `uiAccess="true"` and signed with an Authenticode certificate. Grants native User Interface Privilege Isolation (UIPI) bypass, enabling smooth gestures over elevated Administrator applications (Task Manager, Registry Editor, Command Prompt) without UAC prompts.
+* **Flexible Integration Modes:** Configured directly in the Bridge Settings window:
+  - **Automatic (Recommended):** Uses the low-latency Named Pipe (`\\.\pipe\T650VirtualPtpPipe`) if the [VirtualPTP Driver](https://github.com/brunnobb/VirtualPTP) is installed, or falls back seamlessly to the standalone gesture engine.
+  - **PTP Driver:** Direct feed into Windows Touch Stack for native Windows Precision Touchpad gestures.
+  - **Standalone:** High-performance direct input synthesis via `SendInput`.
+* **Native UIPI Bypass (`uiAccess="true"`):** Built with `uiAccess="true"` and signed with an Authenticode certificate. When installed to `Program Files`, it grants native User Interface Privilege Isolation (UIPI) bypass, enabling smooth gestures over elevated Administrator applications (Task Manager, Registry Editor, Command Prompt) without UAC prompts.
+* **Custom Gesture Shortcuts:** Fully customize 3-finger and 4-finger gestures (taps, drags up/down/left/right) with any keyboard shortcut combination.
+* **Contact Debouncing & Sensitivity Tuning:** Built-in contact-stabilization buffer to eliminate contact count skew and customizable trackpad sensitivity.
 
 ---
 
@@ -34,17 +32,17 @@ The project builds two specialized editions tailored for different system enviro
 └──────────────────────────┬─────────────────────────────┘
                            │ 20-byte HID++ 2.0 Reports
 ┌──────────────────────────▼─────────────────────────────┐
-│  T650Bridge Daemon                                     │
+│  T650Bridge Daemon (uiAccess="true" UIPI Bypass)       │
 │  - Feature 0x6100 (Touchpad Raw XY) Activation         │
 │  - Hotplug Supervisor & Wireless Power-Cycle Detection │
-│  - 20-byte Packet Assembler (Contacts, Down/Up/Hover)  │
-│  - System Tray Management & Diagnostics                │
+│  - Landing Debounce & Contact Continuity Engine        │
+│  - GUI Settings Window & Tray Diagnostics              │
 └────────────┬───────────────────────────────┬───────────┘
-             │ (PTP Edition)                 │ (Admin Edition)
+             │ (PTP Mode)                    │ (Standalone Mode)
              ▼                               ▼
 ┌──────────────────────────┐   ┌──────────────────────────┐
 │ VirtualPTP Driver Pipe   │   │ Windows SendInput Engine │
-│ (\\.\pipe\...)           │   │ (uiAccess="true" UIPI)   │
+│ (\\.\pipe\...)           │   │ (Customizable Shortcuts) │
 └──────────────────────────┘   └──────────────────────────┘
 ```
 
@@ -56,21 +54,20 @@ The project builds two specialized editions tailored for different system enviro
 T650Bridge/
 ├── T650Bridge.sln              # Visual Studio solution file
 ├── src/                        # C# source code and project
-│   ├── T650Bridge.csproj       # Multi-flavor .NET project file
+│   ├── T650Bridge.csproj       # Unified .NET project file
 │   ├── Program.cs              # Entry point, CLI args, & main runloop
-│   ├── app.ptp.manifest        # Application manifest for PTP edition
-│   ├── app.admin.manifest      # Manifest with uiAccess="true"
+│   ├── app.manifest            # Application manifest with uiAccess="true"
 │   ├── T650.ico                # Application & Tray icons
+│   ├── Config/                 # Bridge settings & persistence (settings.json)
 │   ├── Gesture/                # Standalone gesture synthesis engine
 │   ├── Hidpp/                  # Logitech Unifying HID++ 2.0 protocol
 │   ├── Ptp/                    # Virtual PTP driver named pipe client
-│   ├── Touch/                  # Multi-touch frame decoding & assembly
-│   └── UI/                     # System tray icon and balloon notifications
+│   ├── Touch/                  # Multi-touch frame decoding & landing debounce
+│   └── UI/                     # System tray icon and Settings window
 ├── Certificates/               # Code-signing certificates for Authenticode
 │   └── T650TestCert.cer        # Authenticode test certificate
 ├── Installer/                  # WiX Toolset v3.14 MSI installer packages
-│   ├── T650Bridge.wxs          # PTP Edition WiX installer
-│   ├── T650Bridge-Admin.wxs    # Standalone Admin Edition WiX installer
+│   ├── T650Bridge.wxs          # WiX installer definition
 │   ├── License.rtf             # Distribution license
 │   └── Build-Bridge-Installer.ps1 # WiX compiler script
 ├── Build-All.ps1               # Complete compile, sign, and package script
@@ -92,26 +89,19 @@ T650Bridge/
 ## Building and Packaging
 
 ### Automated One-Step Build & Package
-To compile both flavors, sign the binaries, and produce both MSI installers:
+To compile, sign the binary, and produce the MSI installer:
 ```powershell
 pwsh -File "Build-All.ps1"
 ```
 
-To build only a specific flavor:
-```powershell
-pwsh -File "Build-All.ps1" -Flavor Ptp
-pwsh -File "Build-All.ps1" -Flavor Admin
-```
-
 ### Version Bumping
-To bump version across the project file and both WiX installers:
+To bump version across the project file and WiX installer:
 ```powershell
-pwsh -File "Bump-Version.ps1" -NewVersion "1.1.7"
+pwsh -File "Bump-Version.ps1" -NewVersion "1.1.8"
 ```
 
 Generated artifacts in `Dist/`:
-* `T650Bridge-PTP-Setup-v<Version>.msi` (and `T650Bridge-PTP-Setup.msi`)
-* `T650Bridge-Admin-Setup-v<Version>.msi` (and `T650Bridge-Admin-Setup.msi`)
+* `T650Bridge-Setup-v<Version>.msi` (and `T650Bridge-Setup.msi`)
 * `SHA256SUMS.txt`
 
 ---
@@ -129,13 +119,14 @@ The compiled executable `T650Bridge.exe` supports the following flags:
 
 ## Auto-Start Configuration
 
-Both installers configure Windows Startup via `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`:
-* **PTP Edition:** Registers `"Logitech T650 Bridge"`.
-* **Admin Edition:** Registers `"Logitech T650 Bridge Admin"`.
-* Both appear in Windows Task Manager $\rightarrow$ **Startup apps** tab where you can enable or disable them at will.
+The installer configures Windows Startup via `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`:
+* Entry name: `"Logitech T650 Bridge"`
+* Target: `"C:\Program Files\Logitech T650 PTP\Bridge\T650Bridge.exe" --silent`
+* Appears in Windows Task Manager $\rightarrow$ **Startup apps** tab where you can enable or disable it.
 
 ---
 
 ## License
 
 MIT License. See [LICENSE](LICENSE) for details.
+

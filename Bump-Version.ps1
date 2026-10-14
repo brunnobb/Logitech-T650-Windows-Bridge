@@ -45,17 +45,7 @@ if (Test-Path $wxsPath) {
     Write-Host "  -> Updated to Version $fourPartVersion" -ForegroundColor Green
 }
 
-# 3. Update Installer\T650Bridge-Admin.wxs
-$adminWxsPath = Join-Path $repoRoot "Installer\T650Bridge-Admin.wxs"
-if (Test-Path $adminWxsPath) {
-    Write-Host "`n[3/3] Updating $adminWxsPath..." -ForegroundColor Yellow
-    $adminWxsContent = Get-Content $adminWxsPath -Raw
-    $adminWxsContent = [regex]::Replace($adminWxsContent, '(?<!Installer)Version="[\d\.]+"', "Version=""$fourPartVersion""")
-    Set-Content -Path $adminWxsPath -Value $adminWxsContent -Encoding utf8
-    Write-Host "  -> Updated to Version $fourPartVersion" -ForegroundColor Green
-}
-
-# 4. Rebuild & Re-package
+# 3. Rebuild & Re-package
 Write-Host "`n>>> Rebuilding and packaging Logitech T650 Bridge v$NewVersion..." -ForegroundColor Cyan
 $buildScript = Join-Path $repoRoot "Build-All.ps1"
 & pwsh -File "$buildScript" -Version "$NewVersion"

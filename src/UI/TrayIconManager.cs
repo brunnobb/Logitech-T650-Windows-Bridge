@@ -37,7 +37,6 @@ public class TrayIconManager : IDisposable
     public bool EnableNotifications { get; set; } = false;
     public BridgeSettings Settings { get; }
 
-    private readonly bool _isAdminMode;
     private readonly bool _isElevated;
 
     public event Action? ToggleStartStop;
@@ -45,10 +44,9 @@ public class TrayIconManager : IDisposable
     public event Action? RequestExit;
     public event Action<BridgeSettings>? SettingsChanged;
 
-    public TrayIconManager(BridgeSettings settings, bool isAdminMode = false, bool isElevated = false, bool startHidden = false)
+    public TrayIconManager(BridgeSettings settings, bool isElevated = false, bool startHidden = false)
     {
         Settings = settings;
-        _isAdminMode = isAdminMode;
         _isElevated = isElevated;
         IsConsoleHidden = startHidden;
 
@@ -85,10 +83,9 @@ public class TrayIconManager : IDisposable
 
         _contextMenu = new ContextMenuStrip();
         
-        // Header: Version & Edition Display
-        var version = typeof(TrayIconManager).Assembly.GetName().Version?.ToString(3) ?? "1.1.2";
-        string tag = _isAdminMode ? "[Admin]" : "[PTP]";
-        var titleItem = new ToolStripMenuItem($"Logitech T650 Bridge v{version} {tag}")
+        // Header: Version Display
+        var version = typeof(TrayIconManager).Assembly.GetName().Version?.ToString(3) ?? "1.1.8";
+        var titleItem = new ToolStripMenuItem($"Logitech T650 Bridge v{version}")
         {
             Enabled = false,
             Font = new Font(Control.DefaultFont, FontStyle.Italic)
@@ -181,7 +178,7 @@ public class TrayIconManager : IDisposable
 
         _notifyIcon.DoubleClick += (s, e) => ToggleConsoleWindow();
 
-        string windowTitle = $"Logitech T650 Bridge v{version} {tag} — Settings & Diagnostics";
+        string windowTitle = $"Logitech T650 Bridge v{version} — Settings & Diagnostics";
         _logWindow = new LogWindowForm(windowTitle, _iconActive, Settings);
         _logWindow.RequestRewake += () => RequestRewake?.Invoke();
         _logWindow.RequestHideToTray += () => HideConsole(notifyUser: true);

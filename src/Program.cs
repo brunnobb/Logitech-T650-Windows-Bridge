@@ -16,39 +16,9 @@ class Program
     {
         var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "1.1.8";
 
-#if FLAVOR_ADMIN
-        const bool compiledAsAdmin = true;
-#else
-        const bool compiledAsAdmin = false;
-#endif
-
-        bool adminMode = compiledAsAdmin || args.Contains("--admin") || args.Contains("--standalone");
         bool hasUiAccess = HasUiAccess();
         bool isElevated = IsElevated();
         bool canBypassUipi = isElevated || hasUiAccess;
-
-        if (adminMode && !canBypassUipi)
-        {
-            try
-            {
-                var psi = new ProcessStartInfo
-                {
-                    FileName = Environment.ProcessPath ?? "T650Bridge.exe",
-                    UseShellExecute = true,
-                    Verb = "runas",
-                    Arguments = string.Join(" ", args)
-                };
-                Process.Start(psi);
-                return;
-            }
-            catch (Exception ex)
-            {
-                Console.ForegroundColor = ConsoleColor.Yellow;
-                Console.WriteLine($"[Security] Elevation prompt declined ({ex.Message}). Continuing as standard user.");
-                Console.WriteLine("[Security] Note: Mouse movement will freeze over Admin windows due to Windows UIPI.");
-                Console.ResetColor();
-            }
-        }
 
         const string MutexName = @"Global\LogitechT650Bridge_SingleInstanceMutex";
         using var singleMutex = new Mutex(true, MutexName, out bool isOnlyInstance);
@@ -74,7 +44,7 @@ class Program
         bool autoHide = !args.Contains("--console") && !args.Contains("--no-hide") && settings.AutoHideOnConnect;
         bool testOnly = args.Contains("--test-only");
 
-        using var tray = new TrayIconManager(settings, adminMode, canBypassUipi, startHidden: silentStartup || testOnly);
+        using var tray = new TrayIconManager(settings, isElevated: canBypassUipi, startHidden: silentStartup || testOnly);
         tray.EnableNotifications = enableNotifications;
         tray.UpdateState(DeviceConnectionState.SearchingForReceiver, isPaused: !enableGestures);
 
@@ -84,13 +54,11 @@ class Program
             tray.UpdateTelemetry);
         Console.SetOut(logWriter);
 
-        string edition = adminMode ? "Standalone Admin Edition" : "Precision Touchpad (PTP) Edition";
-
         Console.WriteLine("===============================================================");
-        Console.WriteLine($" Logitech T650 Bridge v{version} - {edition} ");
+        Console.WriteLine($" Logitech T650 Bridge v{version} ");
         Console.WriteLine("===============================================================");
 
-        Console.WriteLine($"[Version] Bridge Daemon v{version} ({edition})");
+        Console.WriteLine($"[Version] Bridge Daemon v{version}");
         string securityStatus;
         if (hasUiAccess)
             securityStatus = "Standard User (UIAccess Active - UIPI Bypass Enabled)";
