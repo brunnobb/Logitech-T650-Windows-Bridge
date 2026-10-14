@@ -10,9 +10,9 @@
     <RootNamespace>T650Bridge</RootNamespace>
     <ApplicationIcon>T650.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>1.1.9</Version>
-    <AssemblyVersion>1.1.9.0</AssemblyVersion>
-    <FileVersion>1.1.9.0</FileVersion>
+    <Version>1.1.10</Version>
+    <AssemblyVersion>1.1.10.0</AssemblyVersion>
+    <FileVersion>1.1.10.0</FileVersion>
   </PropertyGroup>
 
   <ItemGroup>
@@ -20,4 +20,5 @@
   </ItemGroup>
 
 </Project>
+
 

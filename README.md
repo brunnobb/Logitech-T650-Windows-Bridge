@@ -1,6 +1,6 @@
 # Logitech T650 Windows Precision Touchpad Bridge
 
-[![Release](https://img.shields.io/badge/Release-v1.1.9-blue.svg)](https://github.com/brunnobb/Logitech-T650-Windows-Bridge/releases)
+[![Release](https://img.shields.io/badge/Release-v1.1.10-blue.svg)](https://github.com/brunnobb/Logitech-T650-Windows-Bridge/releases)
 [![.NET 10](https://img.shields.io/badge/.NET-10.0-512BD4.svg)](https://dotnet.microsoft.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
@@ -124,11 +124,11 @@ pwsh -File "Build-All.ps1"
 ### Version Bumping
 To bump version across the project file and WiX installer:
 ```powershell
-pwsh -File "Bump-Version.ps1" -NewVersion "1.1.9"
+pwsh -File "Bump-Version.ps1" -NewVersion "1.1.10"
 ```
 
 Generated artifacts in `Dist/`:
-* `T650Bridge-Setup-v1.1.9.msi` (and `T650Bridge-Setup.msi`)
+* `T650Bridge-Setup-v1.1.10.msi` (and `T650Bridge-Setup.msi`)
 * `SHA256SUMS.txt`
 
 ---
