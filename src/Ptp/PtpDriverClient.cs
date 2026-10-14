@@ -183,12 +183,17 @@ public class PtpDriverClient : IDisposable
         return false;
     }
 
-    public void Dispose()
+    public void Disconnect()
     {
         try { _pipeStream?.Dispose(); } catch { }
         _pipeStream = null;
-        _handle?.Dispose();
+        try { _handle?.Dispose(); } catch { }
         _handle = null;
+    }
+
+    public void Dispose()
+    {
+        Disconnect();
     }
 
     #region Win32 Device Discovery & IOCTL

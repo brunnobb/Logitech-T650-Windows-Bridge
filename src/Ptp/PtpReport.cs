@@ -25,7 +25,7 @@ public struct PtpTouchReport
     public byte ContactCount;
     public byte ButtonState; // Bit 0: Button 1
 
-    public static PtpTouchReport FromTouchFrame(TouchFrame frame, ushort scanTime)
+    public static PtpTouchReport FromTouchFrame(TouchFrame frame, ushort scanTime, bool suppressConfidence = false)
     {
         var report = new PtpTouchReport
         {
@@ -41,7 +41,10 @@ public struct PtpTouchReport
             byte flags = 0;
             if (c.IsTouching) flags |= 0x01; // Tip Switch
             flags |= 0x02; // In Range
-            flags |= 0x04; // Confidence (Valid touch)
+            if (!suppressConfidence)
+            {
+                flags |= 0x04; // Confidence (Valid touch)
+            }
 
             var contactRep = new PtpContactReport
             {

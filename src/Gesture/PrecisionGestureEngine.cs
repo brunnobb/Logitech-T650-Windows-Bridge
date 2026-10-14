@@ -8,8 +8,10 @@ namespace T650Bridge.Gesture;
 /// Translates raw touch frames into smooth Windows cursor movement, tap clicks,
 /// two-finger scrolling, three-finger multitasking, and four-finger virtual desktop navigation.
 /// </summary>
-public class PrecisionGestureEngine
+public class PrecisionGestureEngine : IDisposable
 {
+    private readonly object _syncLock = new();
+
     // Touch session tracking
     private bool _sessionActive;
     private DateTime _sessionStartTime = DateTime.MinValue;
@@ -22,12 +24,77 @@ public class PrecisionGestureEngine
     // Physical button / dragging state
     private bool _isPhysicalDown;
 
+    // Tap to Drag state tracking
+    public bool TapToDragEnabled { get; set; } = true;
+    public double TapDragTimeoutMs { get; set; } = 300.0;
+    private bool _isTapDragActive;
+    public bool IsTapDragActive => _isTapDragActive;
+    private bool _tapDragMoved;
+    private double _tapDragDistance;
+
+    // Disambiguation: pending single-tap timer to prevent double-click on tap-to-drag start
+    private System.Threading.Timer? _singleTapTimer;
+    private bool _pendingSingleTap;
+    private (ushort X, ushort Y) _pendingTapPosition;
+    private DateTime _pendingTapTime = DateTime.MinValue;
+
     // Fractional scroll accumulator
     private double _scrollAccumY;
     private double _scrollAccumX;
 
+    // Cursor Sensitivity Setting (Default: 1.15)
+    public double CursorSensitivity { get; set; } = 1.15;
+
+    // 3-Finger Gesture Shortcuts
+    public string Gesture3Click { get; set; } = "Win+S";
+    public string Gesture3DragUp { get; set; } = "Win+Tab";
+    public string Gesture3DragDown { get; set; } = "Win+D";
+    public string Gesture3DragLeft { get; set; } = "Alt+Shift+Tab";
+    public string Gesture3DragRight { get; set; } = "Alt+Tab";
+
+    // 4-Finger Gesture Shortcuts
+    public string Gesture4Click { get; set; } = "Win+A";
+    public string Gesture4DragUp { get; set; } = "Win+Tab";
+    public string Gesture4DragDown { get; set; } = "Win+A";
+    public string Gesture4DragLeft { get; set; } = "Ctrl+Win+Left";
+    public string Gesture4DragRight { get; set; } = "Ctrl+Win+Right";
+
+    public void ApplySettings(Config.BridgeSettings settings)
+    {
+        CursorSensitivity = settings.CursorSensitivity;
+        TapToDragEnabled = settings.TapToDragEnabled;
+        TapDragTimeoutMs = settings.TapDragTimeoutMs;
+        Gesture3Click = settings.Gesture3Click;
+        Gesture3DragUp = settings.Gesture3DragUp;
+        Gesture3DragDown = settings.Gesture3DragDown;
+        Gesture3DragLeft = settings.Gesture3DragLeft;
+        Gesture3DragRight = settings.Gesture3DragRight;
+        Gesture4Click = settings.Gesture4Click;
+        Gesture4DragUp = settings.Gesture4DragUp;
+        Gesture4DragDown = settings.Gesture4DragDown;
+        Gesture4DragLeft = settings.Gesture4DragLeft;
+        Gesture4DragRight = settings.Gesture4DragRight;
+    }
+
+    private void ExecuteGesture(string gestureName, string? shortcut, string logPrefix)
+    {
+        if (string.IsNullOrWhiteSpace(shortcut))
+        {
+            GestureTriggered?.Invoke($"{logPrefix}: [Disabled / Empty]");
+            return;
+        }
+
+        if (ShortcutExecutor.ExecuteShortcut(shortcut))
+        {
+            GestureTriggered?.Invoke($"{logPrefix} ({shortcut})");
+        }
+        else
+        {
+            GestureTriggered?.Invoke($"{logPrefix} [Unrecognized: {shortcut}]");
+        }
+    }
+
     // Tuning constants
-    private const double CursorSensitivity = 1.15;
     private const double SwipeTravelThreshold = 140.0; // ~6mm movement required to trigger 3/4 finger swipe
     private const double TapMaxTravel = 60.0;          // Max distance allowed to qualify as a tap
     private const double TapMaxDurationMs = 300.0;     // Max contact time in ms to qualify as a tap
@@ -44,6 +111,7 @@ public class PrecisionGestureEngine
         // 1. Physical Hardware Click (bottom mechanical switches)
         if (frame.PhysicalButtonPressed && !_isPhysicalDown)
         {
+            FirePendingSingleTapNow();
             _isPhysicalDown = true;
             SendMouseButton(leftDown: true);
             GestureTriggered?.Invoke("Physical Click: DOWN");
@@ -70,6 +138,48 @@ public class PrecisionGestureEngine
                 _scrollAccumY = 0;
                 _scrollAccumX = 0;
                 _lastContacts.Clear();
+
+                // Check if a single-tap was pending disambiguation
+                bool isDoubleTap = false;
+                lock (_syncLock)
+                {
+                    if (_pendingSingleTap)
+                    {
+                        if (TapToDragEnabled && count == 1)
+                        {
+                            double msSinceFirstTap = (DateTime.UtcNow - _pendingTapTime).TotalMilliseconds;
+                            if (msSinceFirstTap <= TapDragTimeoutMs)
+                            {
+                                var firstContact = contacts[0];
+                                double distFromFirstTap = Math.Sqrt(
+                                    Math.Pow(firstContact.X - _pendingTapPosition.X, 2) +
+                                    Math.Pow(firstContact.Y - _pendingTapPosition.Y, 2)
+                                );
+
+                                if (distFromFirstTap <= TapMaxTravel * 2.5)
+                                {
+                                    isDoubleTap = true;
+                                    CancelPendingSingleTap();
+                                }
+                            }
+                        }
+
+                        if (!isDoubleTap)
+                        {
+                            // Not a double-tap: flush pending single click immediately so it isn't lost
+                            FirePendingSingleTapNow();
+                        }
+                    }
+                }
+
+                if (isDoubleTap)
+                {
+                    _isTapDragActive = true;
+                    _tapDragMoved = false;
+                    _tapDragDistance = 0;
+                    SendMouseButton(leftDown: true);
+                    GestureTriggered?.Invoke("Tap to Drag: START (Left Button DOWN)");
+                }
             }
             else
             {
@@ -77,6 +187,13 @@ public class PrecisionGestureEngine
                 if (count > _maxFingersInSession)
                 {
                     _maxFingersInSession = count;
+                }
+
+                if (_isTapDragActive && count > 1)
+                {
+                    _isTapDragActive = false;
+                    SendMouseButton(leftDown: false);
+                    GestureTriggered?.Invoke("Tap to Drag: CANCELLED (Multi-finger)");
                 }
             }
 
@@ -101,6 +218,15 @@ public class PrecisionGestureEngine
                 frameDy /= trackedCount;
                 _totalDX += frameDx;
                 _totalDY += frameDy;
+
+                if (_isTapDragActive)
+                {
+                    _tapDragDistance += Math.Sqrt(frameDx * frameDx + frameDy * frameDy);
+                    if (_tapDragDistance > 20.0)
+                    {
+                        _tapDragMoved = true;
+                    }
+                }
             }
 
             // Dispatch gesture actions based on max finger count
@@ -164,26 +290,22 @@ public class PrecisionGestureEngine
                             {
                                 if (_totalDY < 0)
                                 {
-                                    GestureTriggered?.Invoke("Gesture: 3-Finger Swipe UP (Task View: Win+Tab)");
-                                    SendKeyCombo(VK_LWIN, VK_TAB);
+                                    ExecuteGesture("3 Drag Up", Gesture3DragUp, "Gesture: 3-Finger Swipe UP");
                                 }
                                 else
                                 {
-                                    GestureTriggered?.Invoke("Gesture: 3-Finger Swipe DOWN (Show Desktop: Win+D)");
-                                    SendKeyCombo(VK_LWIN, VK_D);
+                                    ExecuteGesture("3 Drag Down", Gesture3DragDown, "Gesture: 3-Finger Swipe DOWN");
                                 }
                             }
                             else
                             {
                                 if (_totalDX > 0)
                                 {
-                                    GestureTriggered?.Invoke("Gesture: 3-Finger Swipe RIGHT (Next App: Alt+Tab)");
-                                    SendKeyCombo(VK_MENU, VK_TAB);
+                                    ExecuteGesture("3 Right", Gesture3DragRight, "Gesture: 3-Finger Swipe RIGHT");
                                 }
                                 else
                                 {
-                                    GestureTriggered?.Invoke("Gesture: 3-Finger Swipe LEFT (Prev App: Alt+Shift+Tab)");
-                                    SendKeyComboWithShift(VK_MENU, VK_TAB);
+                                    ExecuteGesture("3 Left", Gesture3DragLeft, "Gesture: 3-Finger Swipe LEFT");
                                 }
                             }
                         }
@@ -203,26 +325,22 @@ public class PrecisionGestureEngine
                             {
                                 if (_totalDX > 0)
                                 {
-                                    GestureTriggered?.Invoke("Gesture: 4-Finger Swipe RIGHT (Next Desktop: Ctrl+Win+Right)");
-                                    SendDesktopSwitch(next: true);
+                                    ExecuteGesture("4 Right", Gesture4DragRight, "Gesture: 4-Finger Swipe RIGHT");
                                 }
                                 else
                                 {
-                                    GestureTriggered?.Invoke("Gesture: 4-Finger Swipe LEFT (Prev Desktop: Ctrl+Win+Left)");
-                                    SendDesktopSwitch(next: false);
+                                    ExecuteGesture("4 Left", Gesture4DragLeft, "Gesture: 4-Finger Swipe LEFT");
                                 }
                             }
                             else
                             {
                                 if (_totalDY < 0)
                                 {
-                                    GestureTriggered?.Invoke("Gesture: 4-Finger Swipe UP (Task View: Win+Tab)");
-                                    SendKeyCombo(VK_LWIN, VK_TAB);
+                                    ExecuteGesture("4 Drag Up", Gesture4DragUp, "Gesture: 4-Finger Swipe UP");
                                 }
                                 else
                                 {
-                                    GestureTriggered?.Invoke("Gesture: 4-Finger Swipe DOWN (Action Center: Win+A)");
-                                    SendKeyCombo(VK_LWIN, VK_A);
+                                    ExecuteGesture("4 Drag Down", Gesture4DragDown, "Gesture: 4-Finger Swipe DOWN");
                                 }
                             }
                         }
@@ -244,30 +362,168 @@ public class PrecisionGestureEngine
                 var duration = (DateTime.UtcNow - _sessionStartTime).TotalMilliseconds;
                 double totalTravel = Math.Sqrt(_totalDX * _totalDX + _totalDY * _totalDY);
 
+                // Tap to Drag Release
+                if (_isTapDragActive)
+                {
+                    _isTapDragActive = false;
+                    SendMouseButton(leftDown: false);
+
+                    if (_tapDragMoved)
+                    {
+                        GestureTriggered?.Invoke("Tap to Drag: RELEASED (Left Button UP)");
+                    }
+                    else
+                    {
+                        // Double-tap in place without moving: User intended a Double-Click!
+                        if (duration < TapMaxDurationMs)
+                        {
+                            SendLeftClick();
+                            GestureTriggered?.Invoke("Double Tap: Double Click in place");
+                        }
+                        else
+                        {
+                            GestureTriggered?.Invoke("Tap to Drag: RELEASED (Left Button UP)");
+                        }
+                    }
+                }
                 // Tap detection: short duration, minimal travel, no physical button held, no swipe fired
-                if (!_swipeTriggered && !_isPhysicalDown && duration < TapMaxDurationMs && totalTravel < TapMaxTravel)
+                else if (!_swipeTriggered && !_isPhysicalDown && duration < TapMaxDurationMs && totalTravel < TapMaxTravel)
                 {
                     if (_maxFingersInSession == 1)
                     {
-                        GestureTriggered?.Invoke("Tap: 1-Finger (Left Click)");
-                        SendLeftClick();
+                        var pt = _lastContacts.Count > 0 ? _lastContacts.Values.First() : (ushort.MinValue, ushort.MinValue);
+
+                        if (TapToDragEnabled)
+                        {
+                            // Disambiguation window: wait to see if a second tap touches down
+                            ArmPendingSingleTap(pt);
+                        }
+                        else
+                        {
+                            GestureTriggered?.Invoke("Tap: 1-Finger (Left Click)");
+                            SendLeftClick();
+                        }
                     }
                     else if (_maxFingersInSession == 2)
                     {
+                        FirePendingSingleTapNow();
                         GestureTriggered?.Invoke("Tap: 2-Finger (Right Click)");
                         SendRightClick();
                     }
                     else if (_maxFingersInSession == 3)
                     {
-                        GestureTriggered?.Invoke("Tap: 3-Finger (Windows Search: Win+S)");
-                        SendKeyCombo(VK_LWIN, VK_S);
+                        FirePendingSingleTapNow();
+                        ExecuteGesture("3 Click", Gesture3Click, "Tap: 3-Finger");
                     }
+                    else if (_maxFingersInSession >= 4)
+                    {
+                        FirePendingSingleTapNow();
+                        ExecuteGesture("4 Click", Gesture4Click, "Tap: 4-Finger");
+                    }
+                }
+                else
+                {
+                    FirePendingSingleTapNow();
                 }
 
                 _sessionActive = false;
                 _lastContacts.Clear();
             }
         }
+    }
+
+    private void ArmPendingSingleTap((ushort X, ushort Y) pt)
+    {
+        lock (_syncLock)
+        {
+            _singleTapTimer?.Dispose();
+            _pendingSingleTap = true;
+            _pendingTapPosition = pt;
+            _pendingTapTime = DateTime.UtcNow;
+
+            int timeout = (int)Math.Clamp(TapDragTimeoutMs, 80.0, 500.0);
+            _singleTapTimer = new System.Threading.Timer(OnSingleTapTimeout, null, timeout, Timeout.Infinite);
+        }
+    }
+
+    private void OnSingleTapTimeout(object? state)
+    {
+        bool fire = false;
+        lock (_syncLock)
+        {
+            if (_pendingSingleTap)
+            {
+                _pendingSingleTap = false;
+                _singleTapTimer?.Dispose();
+                _singleTapTimer = null;
+                fire = true;
+            }
+        }
+
+        if (fire)
+        {
+            EnsureInteractiveDesktop();
+            GestureTriggered?.Invoke("Tap: 1-Finger (Left Click)");
+            SendLeftClick();
+        }
+    }
+
+    private void CancelPendingSingleTap()
+    {
+        lock (_syncLock)
+        {
+            _pendingSingleTap = false;
+            _singleTapTimer?.Dispose();
+            _singleTapTimer = null;
+        }
+    }
+
+    private void FirePendingSingleTapNow()
+    {
+        bool fire = false;
+        lock (_syncLock)
+        {
+            if (_pendingSingleTap)
+            {
+                _pendingSingleTap = false;
+                _singleTapTimer?.Dispose();
+                _singleTapTimer = null;
+                fire = true;
+            }
+        }
+
+        if (fire)
+        {
+            EnsureInteractiveDesktop();
+            GestureTriggered?.Invoke("Tap: 1-Finger (Left Click)");
+            SendLeftClick();
+        }
+    }
+
+    public void Reset()
+    {
+        lock (_syncLock)
+        {
+            CancelPendingSingleTap();
+            if (_isTapDragActive)
+            {
+                _isTapDragActive = false;
+                SendMouseButton(leftDown: false);
+            }
+            if (_isPhysicalDown)
+            {
+                _isPhysicalDown = false;
+                SendMouseButton(leftDown: false);
+            }
+            _sessionActive = false;
+            _lastContacts.Clear();
+        }
+    }
+
+    public void Dispose()
+    {
+        Reset();
+        GC.SuppressFinalize(this);
     }
 
     #region Win32 Input API (mouse_event & keybd_event)

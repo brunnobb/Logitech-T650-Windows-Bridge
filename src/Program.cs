@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Reflection;
 using System.Security.Principal;
+using T650Bridge.Config;
 using T650Bridge.Gesture;
 using T650Bridge.Hidpp;
 using T650Bridge.Ptp;
@@ -13,7 +14,7 @@ class Program
 {
     static void Main(string[] args)
     {
-        var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "1.1.2";
+        var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "1.1.8";
 
 #if FLAVOR_ADMIN
         const bool compiledAsAdmin = true;
@@ -57,14 +58,23 @@ class Program
             return;
         }
 
+        var settings = BridgeSettings.Load();
+
+        if (args.Contains("--standalone"))
+            settings.IntegrationMode = IntegrationMode.Standalone;
+        else if (args.Contains("--ptp"))
+            settings.IntegrationMode = IntegrationMode.PtpDriver;
+        else if (args.Contains("--auto"))
+            settings.IntegrationMode = IntegrationMode.Automatic;
+
         bool enableGestures = !args.Contains("--no-gesture");
-        bool enableNotifications = args.Contains("--notifications") || args.Contains("--balloon");
+        bool enableNotifications = args.Contains("--notifications") || args.Contains("--balloon") || settings.EnableNotifications;
         bool verboseDiag = args.Contains("--diag") || args.Contains("--test") || (!args.Contains("--silent") && !args.Contains("--tray"));
-        bool silentStartup = args.Contains("--silent") || args.Contains("--tray") || args.Contains("--minimized");
-        bool autoHide = !args.Contains("--console") && !args.Contains("--no-hide");
+        bool silentStartup = args.Contains("--silent") || args.Contains("--tray") || args.Contains("--minimized") || settings.StartMinimized;
+        bool autoHide = !args.Contains("--console") && !args.Contains("--no-hide") && settings.AutoHideOnConnect;
         bool testOnly = args.Contains("--test-only");
 
-        using var tray = new TrayIconManager(adminMode, canBypassUipi, startHidden: silentStartup || testOnly);
+        using var tray = new TrayIconManager(settings, adminMode, canBypassUipi, startHidden: silentStartup || testOnly);
         tray.EnableNotifications = enableNotifications;
         tray.UpdateState(DeviceConnectionState.SearchingForReceiver, isPaused: !enableGestures);
 
@@ -97,6 +107,8 @@ class Program
 
         Console.WriteLine($"[Config] Gestures Enabled: {enableGestures}");
         Console.WriteLine($"[Config] Desktop Notifications: {(enableNotifications ? "Enabled" : "Disabled (Quiet)")}");
+        Console.WriteLine($"[Config] Integration Mode: {settings.IntegrationMode}");
+        Console.WriteLine($"[Config] Settings Path: {BridgeSettings.GetSettingsPath()}");
 
         AttachToInteractiveDesktop();
 
@@ -107,7 +119,8 @@ class Program
 
         using var receiver = new UnifyingReceiver();
         var assembler = new FrameAssembler();
-        var gestureEngine = new PrecisionGestureEngine();
+        using var gestureEngine = new PrecisionGestureEngine();
+        gestureEngine.ApplySettings(settings);
 
         receiver.LogMessage += msg => Console.WriteLine($"[Receiver] {msg}");
         receiver.ReportReceived += report => assembler.ProcessRawReport(report);
@@ -118,38 +131,119 @@ class Program
         };
 
         using var ptpDriver = new PtpDriverClient();
-        bool ptpConnected = ptpDriver.Connect();
-        if (ptpConnected)
+
+        void RefreshEngineState()
         {
-            Console.WriteLine("[Tier 2] Connected to Virtual PTP Driver! Injecting directly into Windows Touch Stack.");
+            switch (settings.IntegrationMode)
+            {
+                case IntegrationMode.Standalone:
+                    if (ptpDriver.IsConnected)
+                    {
+                        ptpDriver.Disconnect();
+                    }
+                    Console.WriteLine("[Engine] Integration Mode: Standalone -> High-performance C# software gesture engine active.");
+                    tray.UpdateEngineStatus("Standalone (C# Engine)", Color.FromArgb(0, 220, 130));
+                    break;
+
+                case IntegrationMode.PtpDriver:
+                    if (!ptpDriver.IsConnected)
+                    {
+                        ptpDriver.Connect();
+                    }
+                    if (ptpDriver.IsConnected)
+                    {
+                        Console.WriteLine("[Engine] Integration Mode: PTP Driver -> Connected to Virtual PTP Driver.");
+                        tray.UpdateEngineStatus("PTP Driver (Connected)", Color.FromArgb(0, 220, 130));
+                    }
+                    else
+                    {
+                        Console.WriteLine("[Engine] Integration Mode: PTP Driver -> Virtual PTP Driver is NOT connected! Software fallback disabled (logs only).");
+                        tray.UpdateEngineStatus("PTP Driver (Disconnected - Idle)", Color.FromArgb(255, 120, 120));
+                    }
+                    break;
+
+                case IntegrationMode.Automatic:
+                default:
+                    if (!ptpDriver.IsConnected)
+                    {
+                        ptpDriver.Connect();
+                    }
+                    if (ptpDriver.IsConnected)
+                    {
+                        Console.WriteLine("[Tier 2] Connected to Virtual PTP Driver! Injecting directly into Windows Touch Stack.");
+                        tray.UpdateEngineStatus("Automatic (PTP Active)", Color.FromArgb(0, 220, 130));
+                    }
+                    else
+                    {
+                        Console.WriteLine("[Tier 1] Virtual PTP Driver not detected. Running high-performance software gesture engine.");
+                        tray.UpdateEngineStatus("Automatic (Fallback: C# Engine)", Color.FromArgb(240, 180, 40));
+                    }
+                    break;
+            }
         }
-        else
+
+        RefreshEngineState();
+
+        using var debouncer = new TouchDebouncer(settings);
+
+        tray.SettingsChanged += updatedSettings =>
         {
-            Console.WriteLine("[Tier 1] Virtual PTP Driver not detected. Running high-performance software gesture engine.");
-        }
+            settings = updatedSettings;
+            debouncer.Settings = settings;
+            gestureEngine.ApplySettings(settings);
+            autoHide = settings.AutoHideOnConnect;
+            enableNotifications = settings.EnableNotifications;
+            tray.EnableNotifications = enableNotifications;
+            RefreshEngineState();
+        };
 
         long frameIndex = 0;
+        bool hadTouchingPrev = false;
         var sw = Stopwatch.StartNew();
 
-        assembler.FrameReady += frame =>
+        assembler.FrameReady += frame => debouncer.ProcessFrame(frame);
+
+        debouncer.FrameReady += (frame, isLandingPhase) =>
         {
             frameIndex++;
             ushort scanTime = (ushort)((sw.ElapsedTicks * 10_000) / Stopwatch.Frequency);
 
-            // 1. Build standard Microsoft PTP Report
-            var ptpReport = PtpTouchReport.FromTouchFrame(frame, scanTime);
+            // 1. Build standard Microsoft PTP Report (with confidence suppression during initial landing)
+            bool suppressConfidence = isLandingPhase && settings.SuppressLandingConfidence;
+            var ptpReport = PtpTouchReport.FromTouchFrame(frame, scanTime, suppressConfidence);
 
-            // 2. Inject to Driver (Tier 2) or fallback to software gesture engine (Tier 1)
-            if (ptpDriver.IsConnected)
+            // 2. Inject based on IntegrationMode
+            switch (settings.IntegrationMode)
             {
-                ptpDriver.InjectReport(ptpReport);
-            }
-            else if (enableGestures)
-            {
-                gestureEngine.ProcessFrame(frame);
+                case IntegrationMode.Standalone:
+                    if (enableGestures)
+                    {
+                        gestureEngine.ProcessFrame(frame);
+                    }
+                    break;
+
+                case IntegrationMode.PtpDriver:
+                    if (ptpDriver.IsConnected)
+                    {
+                        ptpDriver.InjectReport(ptpReport);
+                    }
+                    // On PTP failure, leave only logs without fallback
+                    break;
+
+                case IntegrationMode.Automatic:
+                default:
+                    if (ptpDriver.IsConnected)
+                    {
+                        ptpDriver.InjectReport(ptpReport);
+                    }
+                    else if (enableGestures)
+                    {
+                        gestureEngine.ProcessFrame(frame);
+                    }
+                    break;
             }
 
-            // 3. Diagnostic log window telemetry output (active whenever log window is open)
+            // 3. Diagnostic log window telemetry & frame logging output
             if (!tray.IsConsoleHidden)
             {
                 var touching = frame.Contacts.Where(c => c.IsTouching).ToList();
@@ -160,6 +254,22 @@ class Program
                 string clickInfo = frame.PhysicalButtonPressed ? "[CLICK]" : "       ";
 
                 tray.UpdateTelemetry($"[Frame #{frameIndex:D5}] Active: {touching.Count}/5 {clickInfo} | Contacts: {contactsInfo}");
+
+                if (settings.LogTouchFrames)
+                {
+                    if (touching.Count > 0)
+                    {
+                        hadTouchingPrev = true;
+                        string dragTag = gestureEngine.IsTapDragActive ? " [DRAGGING]" : "";
+                        string confTag = suppressConfidence ? " [CONF=0]" : "";
+                        Console.WriteLine($"[Frame #{frameIndex:D5}] Active: {touching.Count}/5 {clickInfo} | {contactsInfo}{confTag}{dragTag}");
+                    }
+                    else if (hadTouchingPrev)
+                    {
+                        hadTouchingPrev = false;
+                        Console.WriteLine($"[Frame #{frameIndex:D5}] Lifted: 0/5 | All contacts released");
+                    }
+                }
             }
         };
 
@@ -177,6 +287,10 @@ class Program
         {
             Console.WriteLine("\n[Tray] Re-sending raw multi-touch unlock packet to T650...");
             receiver.UnlockRawMode();
+            if (settings.IntegrationMode != IntegrationMode.Standalone && !ptpDriver.IsConnected)
+            {
+                RefreshEngineState();
+            }
             tray.ShowBalloon("Logitech T650", "Re-sent raw touch mode unlock command to pad.");
         };
 

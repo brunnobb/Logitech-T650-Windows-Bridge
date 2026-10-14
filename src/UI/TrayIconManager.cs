@@ -3,6 +3,7 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
+using T650Bridge.Config;
 using T650Bridge.Hidpp;
 
 namespace T650Bridge.UI;
@@ -34,6 +35,7 @@ public class TrayIconManager : IDisposable
     public bool IsActive { get; private set; } = true;
     public bool IsConsoleHidden { get; private set; }
     public bool EnableNotifications { get; set; } = false;
+    public BridgeSettings Settings { get; }
 
     private readonly bool _isAdminMode;
     private readonly bool _isElevated;
@@ -41,9 +43,11 @@ public class TrayIconManager : IDisposable
     public event Action? ToggleStartStop;
     public event Action? RequestRewake;
     public event Action? RequestExit;
+    public event Action<BridgeSettings>? SettingsChanged;
 
-    public TrayIconManager(bool isAdminMode = false, bool isElevated = false, bool startHidden = false)
+    public TrayIconManager(BridgeSettings settings, bool isAdminMode = false, bool isElevated = false, bool startHidden = false)
     {
+        Settings = settings;
         _isAdminMode = isAdminMode;
         _isElevated = isElevated;
         IsConsoleHidden = startHidden;
@@ -150,9 +154,9 @@ public class TrayIconManager : IDisposable
 
         _contextMenu.Items.Add(new ToolStripSeparator());
 
-        // 4. Toggle Console / Log Window (Show / Hide)
+        // 4. Toggle Settings / Log Window (Show / Hide)
         _toggleConsoleItem = new ToolStripMenuItem(
-            IsConsoleHidden ? "🔳 Show Log Window" : "🔲 Hide Log to Tray",
+            IsConsoleHidden ? "⚙️ Open Settings & Log" : "🔲 Hide Window to Tray",
             null,
             (s, e) => ToggleConsoleWindow());
         _contextMenu.Items.Add(_toggleConsoleItem);
@@ -177,8 +181,8 @@ public class TrayIconManager : IDisposable
 
         _notifyIcon.DoubleClick += (s, e) => ToggleConsoleWindow();
 
-        string windowTitle = $"Logitech T650 Bridge v{version} {tag} — Diagnostic Log";
-        _logWindow = new LogWindowForm(windowTitle, _iconActive);
+        string windowTitle = $"Logitech T650 Bridge v{version} {tag} — Settings & Diagnostics";
+        _logWindow = new LogWindowForm(windowTitle, _iconActive, Settings);
         _logWindow.RequestRewake += () => RequestRewake?.Invoke();
         _logWindow.RequestHideToTray += () => HideConsole(notifyUser: true);
         _logWindow.RequestExit += () =>
@@ -186,6 +190,7 @@ public class TrayIconManager : IDisposable
             RequestExit?.Invoke();
             Application.ExitThread();
         };
+        _logWindow.SettingsChanged += s => SettingsChanged?.Invoke(s);
 
         // Force handle creation so AppendLogLine works even while hidden
         IntPtr logHandle = _logWindow.Handle;
@@ -386,13 +391,13 @@ public class TrayIconManager : IDisposable
 
             if (_toggleConsoleItem != null)
             {
-                _toggleConsoleItem.Text = "🔳 Show Log Window";
+                _toggleConsoleItem.Text = "⚙️ Open Settings & Log";
             }
         });
 
         if (notifyUser && EnableNotifications)
         {
-            ShowBalloon("Logitech T650 Connected", "Gestures active! Minimized to tray. Double-click icon to open log window.", ToolTipIcon.Info);
+            ShowBalloon("Logitech T650 Connected", "Gestures active! Minimized to tray. Double-click icon to open settings & logs.", ToolTipIcon.Info);
         }
     }
 
@@ -419,8 +424,16 @@ public class TrayIconManager : IDisposable
 
             if (_toggleConsoleItem != null)
             {
-                _toggleConsoleItem.Text = "🔲 Hide Log to Tray";
+                _toggleConsoleItem.Text = "🔲 Hide Window to Tray";
             }
+        });
+    }
+
+    public void UpdateEngineStatus(string statusText, Color color)
+    {
+        PostToUiThread(() =>
+        {
+            _logWindow?.UpdateEngineStatus(statusText, color);
         });
     }
 
