@@ -55,6 +55,7 @@ public sealed class LogWindowForm : Form
 
     private readonly Label _lblSettingsSavedFeedback;
     private readonly System.Windows.Forms.Timer _feedbackTimer;
+    private readonly System.Windows.Forms.Timer _sensitivityDebounceTimer;
 
     private BridgeSettings _settings;
     private bool _allowClose;
@@ -68,6 +69,23 @@ public sealed class LogWindowForm : Form
     public LogWindowForm(string title, Icon? appIcon, BridgeSettings settings)
     {
         _settings = settings;
+
+        _feedbackTimer = new System.Windows.Forms.Timer { Interval = 2500 };
+        _feedbackTimer.Tick += (s, e) =>
+        {
+            if (_lblSettingsSavedFeedback != null)
+            {
+                _lblSettingsSavedFeedback.Visible = false;
+            }
+            _feedbackTimer.Stop();
+        };
+
+        _sensitivityDebounceTimer = new System.Windows.Forms.Timer { Interval = 1000 };
+        _sensitivityDebounceTimer.Tick += (s, e) =>
+        {
+            _sensitivityDebounceTimer.Stop();
+            SaveCurrentSettings();
+        };
 
         Text = title;
         Size = new Size(820, 620);
@@ -170,7 +188,11 @@ public sealed class LogWindowForm : Form
         };
 
         _btnHide = CreateActionButton("Hide to Tray", Color.FromArgb(45, 52, 64));
-        _btnHide.Click += (s, e) => RequestHideToTray?.Invoke();
+        _btnHide.Click += (s, e) =>
+        {
+            FlushPendingSettings();
+            RequestHideToTray?.Invoke();
+        };
 
         _btnClear = CreateActionButton("Clear Log", Color.FromArgb(45, 52, 64));
         _btnClear.Click += (s, e) => _logBox?.Clear();
@@ -501,7 +523,18 @@ public sealed class LogWindowForm : Form
         {
             double sens = Math.Round(_trackSensitivity.Value / 100.0, 2);
             _lblSensitivity.Text = $"Cursor sensitivity: {sens:0.00}x{(sens == 1.15 ? " (Default)" : "")}";
-            SaveCurrentSettings();
+            
+            // Debounce applying & saving setting by 1 second to keep slider dragging fluid and lag-free
+            _sensitivityDebounceTimer.Stop();
+            _sensitivityDebounceTimer.Start();
+        };
+        _trackSensitivity.MouseUp += (s, e) =>
+        {
+            if (_sensitivityDebounceTimer.Enabled)
+            {
+                _sensitivityDebounceTimer.Stop();
+                SaveCurrentSettings();
+            }
         };
 
         var lblSensHelp = new Label
@@ -666,13 +699,6 @@ public sealed class LogWindowForm : Form
             ForeColor = Color.FromArgb(0, 220, 130),
             Text = "✓ Settings saved",
             Visible = false
-        };
-
-        _feedbackTimer = new System.Windows.Forms.Timer { Interval = 2500 };
-        _feedbackTimer.Tick += (s, e) =>
-        {
-            _lblSettingsSavedFeedback.Visible = false;
-            _feedbackTimer.Stop();
         };
 
         grpFile.Controls.Add(lblFilePath);
@@ -897,11 +923,13 @@ public sealed class LogWindowForm : Form
         else if (e.KeyCode == Keys.H || e.KeyCode == Keys.Escape)
         {
             e.Handled = true;
+            FlushPendingSettings();
             RequestHideToTray?.Invoke();
         }
         else if (e.KeyCode == Keys.Q)
         {
             e.Handled = true;
+            FlushPendingSettings();
             RequestExit?.Invoke();
         }
     }
@@ -946,6 +974,15 @@ public sealed class LogWindowForm : Form
         return Color.FromArgb(220, 226, 234);
     }
 
+    public void FlushPendingSettings()
+    {
+        if (_sensitivityDebounceTimer != null && _sensitivityDebounceTimer.Enabled)
+        {
+            _sensitivityDebounceTimer.Stop();
+            SaveCurrentSettings();
+        }
+    }
+
     public void AllowShutdown()
     {
         _allowClose = true;
@@ -953,6 +990,8 @@ public sealed class LogWindowForm : Form
 
     protected override void OnFormClosing(FormClosingEventArgs e)
     {
+        FlushPendingSettings();
+
         if (!_allowClose && e.CloseReason == CloseReason.UserClosing)
         {
             e.Cancel = true;
