@@ -33,6 +33,7 @@ public sealed class TouchDebouncer : IDisposable
     private int _sessionFrameCount;
 
     public BridgeSettings Settings { get; set; }
+    public Func<bool>? IsDoubleTapPending { get; set; }
     public event Action<TouchFrame, bool>? FrameReady; // FrameReady(frame, isLandingPhase)
 
     public TouchDebouncer(BridgeSettings settings)
@@ -93,6 +94,17 @@ public sealed class TouchDebouncer : IDisposable
             // Case 3: Transition from Idle to LandingDebounce (new finger touchdown)
             if (_state == State.Idle)
             {
+                // Fast-path: When waiting for a double-tap / tap-to-drag and exactly 1 finger touches down,
+                // stream immediately with zero debounce delay so the double-tap window is not shortened.
+                if (activeContactCount == 1 && (IsDoubleTapPending?.Invoke() == true))
+                {
+                    _state = State.Streaming;
+                    _sessionFrameCount = 1;
+                    _maxFingersInLanding = 1;
+                    FrameReady?.Invoke(frame, false);
+                    return;
+                }
+
                 _state = State.LandingDebounce;
                 _sessionFrameCount = 1;
                 _maxFingersInLanding = activeContactCount;

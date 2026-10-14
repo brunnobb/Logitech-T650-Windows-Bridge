@@ -35,6 +35,7 @@ public class PrecisionGestureEngine : IDisposable
     // Disambiguation: pending single-tap timer to prevent double-click on tap-to-drag start
     private System.Threading.Timer? _singleTapTimer;
     private bool _pendingSingleTap;
+    public bool IsWaitingForDoubleTap => _pendingSingleTap;
     private (ushort X, ushort Y) _pendingTapPosition;
     private DateTime _pendingTapTime = DateTime.MinValue;
 
@@ -98,6 +99,7 @@ public class PrecisionGestureEngine : IDisposable
     private const double SwipeTravelThreshold = 140.0; // ~6mm movement required to trigger 3/4 finger swipe
     private const double TapMaxTravel = 60.0;          // Max distance allowed to qualify as a tap
     private const double TapMaxDurationMs = 300.0;     // Max contact time in ms to qualify as a tap
+    private const double DoubleTapMaxDistance = 350.0; // ~16mm allowed between first tap and second tap touchdown
 
     public event Action<string>? GestureTriggered;
 
@@ -156,7 +158,7 @@ public class PrecisionGestureEngine : IDisposable
                                     Math.Pow(firstContact.Y - _pendingTapPosition.Y, 2)
                                 );
 
-                                if (distFromFirstTap <= TapMaxTravel * 2.5)
+                                if (distFromFirstTap <= DoubleTapMaxDistance)
                                 {
                                     isDoubleTap = true;
                                     CancelPendingSingleTap();

@@ -153,6 +153,7 @@ class Program
         RefreshEngineState();
 
         using var debouncer = new TouchDebouncer(settings);
+        debouncer.IsDoubleTapPending = () => gestureEngine.IsWaitingForDoubleTap;
 
         tray.SettingsChanged += updatedSettings =>
         {

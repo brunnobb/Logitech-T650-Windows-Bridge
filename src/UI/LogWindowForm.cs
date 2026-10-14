@@ -438,10 +438,10 @@ public sealed class LogWindowForm : Form
         {
             Location = new Point(155, 93),
             Width = 75,
-            Minimum = 50,
+            Minimum = 80,
             Maximum = 1000,
             Increment = 10,
-            Value = Math.Clamp(_settings.DoubleClickTimeoutMs, 50, 1000),
+            Value = Math.Clamp(_settings.DoubleClickTimeoutMs, 80, 1000),
             BackColor = Color.FromArgb(32, 36, 44),
             ForeColor = Color.White,
             BorderStyle = BorderStyle.FixedSingle,
@@ -452,7 +452,7 @@ public sealed class LogWindowForm : Form
 
         var lblDoubleClickUnit = new Label
         {
-            Text = "ms (Default: 300 ms) — Maximum delay between taps to register double-tap / tap-to-drag.",
+            Text = "ms (Recommended: 200–300 ms, Default: 250 ms) — Maximum delay between taps to register double-tap / tap-to-drag.",
             Location = new Point(238, 96),
             AutoSize = true,
             ForeColor = Color.FromArgb(150, 160, 175),

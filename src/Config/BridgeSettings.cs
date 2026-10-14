@@ -39,7 +39,7 @@ public sealed class BridgeSettings
 
     // Tap to Drag & Double Click Settings
     public bool TapToDragEnabled { get; set; } = true;
-    public int DoubleClickTimeoutMs { get; set; } = 300;
+    public int DoubleClickTimeoutMs { get; set; } = 250;
 
     [JsonPropertyName("tapDragTimeoutMs")]
     public int? LegacyTapDragTimeoutMs
