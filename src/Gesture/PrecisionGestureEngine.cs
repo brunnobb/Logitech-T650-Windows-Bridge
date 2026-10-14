@@ -63,7 +63,7 @@ public class PrecisionGestureEngine : IDisposable
     {
         CursorSensitivity = settings.CursorSensitivity;
         TapToDragEnabled = settings.TapToDragEnabled;
-        TapDragTimeoutMs = settings.TapDragTimeoutMs;
+        TapDragTimeoutMs = settings.DoubleClickTimeoutMs;
         Gesture3Click = settings.Gesture3Click;
         Gesture3DragUp = settings.Gesture3DragUp;
         Gesture3DragDown = settings.Gesture3DragDown;
@@ -441,7 +441,7 @@ public class PrecisionGestureEngine : IDisposable
             _pendingTapPosition = pt;
             _pendingTapTime = DateTime.UtcNow;
 
-            int timeout = (int)Math.Clamp(TapDragTimeoutMs, 80.0, 500.0);
+            int timeout = (int)Math.Clamp(TapDragTimeoutMs, 50.0, 1000.0);
             _singleTapTimer = new System.Threading.Timer(OnSingleTapTimeout, null, timeout, Timeout.Infinite);
         }
     }

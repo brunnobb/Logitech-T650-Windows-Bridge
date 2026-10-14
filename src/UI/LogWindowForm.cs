@@ -33,6 +33,7 @@ public sealed class LogWindowForm : Form
     private readonly Label _lblDebounceDelay;
     private readonly CheckBox _chkSuppressLandingConfidence;
     private readonly CheckBox _chkTapToDragEnabled;
+    private readonly NumericUpDown _numDoubleClickTimeout;
 
     // Cursor Sensitivity Controls
     private readonly TrackBar _trackSensitivity;
@@ -402,31 +403,73 @@ public sealed class LogWindowForm : Form
         grpDebounce.Controls.Add(_chkSuppressLandingConfidence);
 
         // 4. Tap Gestures & Tap to Drag Group
-        var grpTapToDrag = CreateSettingsCard("Tap Gestures & Tap to Drag", 115);
+        var grpTapToDrag = CreateSettingsCard("Tap Gestures & Tap to Drag", 138);
         grpTapToDrag.Top = grpDebounce.Bottom + 12;
 
         _chkTapToDragEnabled = new CheckBox
         {
             Text = "Enable Tap to Drag (Double-tap and hold to drag windows, files, and selections)",
-            Location = new Point(16, 28),
+            Location = new Point(16, 26),
             AutoSize = true,
             Checked = _settings.TapToDragEnabled,
             Font = new Font("Segoe UI", 9F, FontStyle.Bold),
             ForeColor = Color.FromArgb(235, 240, 245)
         };
-        _chkTapToDragEnabled.CheckedChanged += (s, e) => SaveCurrentSettings();
 
         var lblTapToDragHelp = new Label
         {
             Text = "Quickly tap twice with one finger and keep it on the glass to drag without pressing the physical button.\r\nSupported natively in both Precision Touchpad (Tier 2) and Standalone C# Engine (Tier 1) modes.",
-            Location = new Point(16, 56),
-            Size = new Size(690, 44),
+            Location = new Point(16, 52),
+            Size = new Size(690, 34),
             ForeColor = Color.FromArgb(160, 174, 192),
             Font = new Font("Segoe UI", 8.5F, FontStyle.Regular)
         };
 
+        var lblDoubleClick = new Label
+        {
+            Text = "Double click timeout:",
+            Location = new Point(16, 96),
+            AutoSize = true,
+            ForeColor = Color.FromArgb(210, 220, 235),
+            Font = new Font("Segoe UI", 9F, FontStyle.Regular)
+        };
+
+        _numDoubleClickTimeout = new NumericUpDown
+        {
+            Location = new Point(155, 93),
+            Width = 75,
+            Minimum = 50,
+            Maximum = 1000,
+            Increment = 10,
+            Value = Math.Clamp(_settings.DoubleClickTimeoutMs, 50, 1000),
+            BackColor = Color.FromArgb(32, 36, 44),
+            ForeColor = Color.White,
+            BorderStyle = BorderStyle.FixedSingle,
+            Font = new Font("Segoe UI", 9F, FontStyle.Regular),
+            Enabled = _settings.TapToDragEnabled
+        };
+        _numDoubleClickTimeout.ValueChanged += (s, e) => SaveCurrentSettings();
+
+        var lblDoubleClickUnit = new Label
+        {
+            Text = "ms (Default: 300 ms) — Maximum delay between taps to register double-tap / tap-to-drag.",
+            Location = new Point(238, 96),
+            AutoSize = true,
+            ForeColor = Color.FromArgb(150, 160, 175),
+            Font = new Font("Segoe UI", 8.5F, FontStyle.Regular)
+        };
+
+        _chkTapToDragEnabled.CheckedChanged += (s, e) =>
+        {
+            _numDoubleClickTimeout.Enabled = _chkTapToDragEnabled.Checked;
+            SaveCurrentSettings();
+        };
+
         grpTapToDrag.Controls.Add(_chkTapToDragEnabled);
         grpTapToDrag.Controls.Add(lblTapToDragHelp);
+        grpTapToDrag.Controls.Add(lblDoubleClick);
+        grpTapToDrag.Controls.Add(_numDoubleClickTimeout);
+        grpTapToDrag.Controls.Add(lblDoubleClickUnit);
 
         // 5. Cursor Tracking Sensitivity
         var grpSensitivity = CreateSettingsCard("Cursor Speed & Tracking Sensitivity", 105);
@@ -719,6 +762,10 @@ public sealed class LogWindowForm : Form
         _settings.LandingDebounceMs = _trackDebounceMs.Value;
         _settings.SuppressLandingConfidence = _chkSuppressLandingConfidence.Checked;
         _settings.TapToDragEnabled = _chkTapToDragEnabled.Checked;
+        if (_numDoubleClickTimeout != null)
+        {
+            _settings.DoubleClickTimeoutMs = (int)_numDoubleClickTimeout.Value;
+        }
         _settings.LogTouchFrames = _chkLogFrames.Checked;
 
         if (_trackSensitivity != null)

@@ -37,9 +37,23 @@ public sealed class BridgeSettings
     public bool SuppressLandingConfidence { get; set; } = true;
     public int MovementDisplacementThreshold { get; set; } = 40;
 
-    // Tap to Drag Settings
+    // Tap to Drag & Double Click Settings
     public bool TapToDragEnabled { get; set; } = true;
-    public int TapDragTimeoutMs { get; set; } = 300;
+    public int DoubleClickTimeoutMs { get; set; } = 300;
+
+    [JsonPropertyName("tapDragTimeoutMs")]
+    public int? LegacyTapDragTimeoutMs
+    {
+        get => null;
+        set { if (value.HasValue) DoubleClickTimeoutMs = value.Value; }
+    }
+
+    [JsonIgnore]
+    public int TapDragTimeoutMs
+    {
+        get => DoubleClickTimeoutMs;
+        set => DoubleClickTimeoutMs = value;
+    }
 
     // Cursor Sensitivity Setting (Default: 1.15)
     public double CursorSensitivity { get; set; } = 1.15;
