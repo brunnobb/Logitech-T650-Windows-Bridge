@@ -46,6 +46,9 @@ public class PrecisionGestureEngine : IDisposable
     // Cursor Sensitivity Setting (Default: 1.15)
     public double CursorSensitivity { get; set; } = 1.15;
 
+    // Scrolling Settings (Standalone Mode)
+    public bool InvertVerticalScroll { get; set; } = false;
+
     // 3-Finger Gesture Shortcuts
     public string Gesture3Click { get; set; } = "Win+S";
     public string Gesture3DragUp { get; set; } = "Win+Tab";
@@ -63,6 +66,7 @@ public class PrecisionGestureEngine : IDisposable
     public void ApplySettings(Config.BridgeSettings settings)
     {
         CursorSensitivity = settings.CursorSensitivity;
+        InvertVerticalScroll = settings.InvertVerticalScroll;
         TapToDragEnabled = settings.TapToDragEnabled;
         TapDragTimeoutMs = settings.DoubleClickTimeoutMs;
         Gesture3Click = settings.Gesture3Click;
@@ -255,13 +259,14 @@ public class PrecisionGestureEngine : IDisposable
                     break;
 
                 case 2:
-                    // 2-Finger Smooth Scrolling
+                    // 2-Finger Smooth Scrolling (Vertical & Horizontal)
                     if (trackedCount > 0)
                     {
-                        // Inverted Y: moving fingers down increases Y (frameDy > 0), so content moves down (scroll UP)
-                        // In Windows, negative WHEEL_DELTA scrolls DOWN.
-                        // Standard trackpad natural scroll: fingers moving UP (frameDy < 0) scrolls page DOWN.
-                        _scrollAccumY += (-frameDy * 6.0);
+                        // In Windows, negative WHEEL_DELTA scrolls DOWN (standard wheel toward user).
+                        // Default (InvertVerticalScroll = false): moving fingers down (frameDy > 0) scrolls DOWN.
+                        // Inverted (InvertVerticalScroll = true): moving fingers down (frameDy > 0) scrolls UP (natural scrolling).
+                        double scrollYDelta = InvertVerticalScroll ? (frameDy * 6.0) : (-frameDy * 6.0);
+                        _scrollAccumY += scrollYDelta;
                         _scrollAccumX += (frameDx * 6.0);
 
                         if (Math.Abs(_scrollAccumY) >= 30)

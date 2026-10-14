@@ -58,6 +58,9 @@ public sealed class BridgeSettings
     // Cursor Sensitivity Setting (Default: 1.15)
     public double CursorSensitivity { get; set; } = 1.15;
 
+    // Scrolling Settings (Standalone Mode)
+    public bool InvertVerticalScroll { get; set; } = false;
+
     // Diagnostic Frame Logging
     public bool LogTouchFrames { get; set; } = false;
 

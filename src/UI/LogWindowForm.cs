@@ -35,9 +35,10 @@ public sealed class LogWindowForm : Form
     private readonly CheckBox _chkTapToDragEnabled;
     private readonly NumericUpDown _numDoubleClickTimeout;
 
-    // Cursor Sensitivity Controls
+    // Cursor Sensitivity & Scrolling Controls
     private readonly TrackBar _trackSensitivity;
     private readonly Label _lblSensitivity;
+    private readonly CheckBox _chkInvertVerticalScroll;
 
     // Gesture Shortcut Controls
     private readonly TextBox _txtG3Click;
@@ -471,14 +472,14 @@ public sealed class LogWindowForm : Form
         grpTapToDrag.Controls.Add(_numDoubleClickTimeout);
         grpTapToDrag.Controls.Add(lblDoubleClickUnit);
 
-        // 5. Cursor Tracking Sensitivity
-        var grpSensitivity = CreateSettingsCard("Cursor Speed & Tracking Sensitivity", 105);
+        // 5. Cursor Tracking Sensitivity & Scrolling
+        var grpSensitivity = CreateSettingsCard("Cursor Speed & Scrolling (Standalone Mode)", 150);
         grpSensitivity.Top = grpTapToDrag.Bottom + 12;
 
         _lblSensitivity = new Label
         {
             Text = $"Cursor sensitivity: {_settings.CursorSensitivity:0.00}x{(_settings.CursorSensitivity == 1.15 ? " (Default)" : "")}",
-            Location = new Point(16, 28),
+            Location = new Point(16, 26),
             AutoSize = true,
             ForeColor = Color.FromArgb(0, 220, 130),
             Font = new Font("Segoe UI", 9F, FontStyle.Regular)
@@ -486,7 +487,7 @@ public sealed class LogWindowForm : Form
 
         _trackSensitivity = new TrackBar
         {
-            Location = new Point(16, 52),
+            Location = new Point(16, 48),
             Width = 320,
             Height = 30,
             Minimum = 40,
@@ -506,8 +507,28 @@ public sealed class LogWindowForm : Form
         var lblSensHelp = new Label
         {
             Text = "Adjusts 1-finger tracking speed and software cursor acceleration multiplier.\r\nDefault: 1.15x for balanced precision. Lower for fine precision, higher for multi-monitors.",
-            Location = new Point(345, 36),
-            Size = new Size(370, 48),
+            Location = new Point(345, 34),
+            Size = new Size(370, 44),
+            ForeColor = Color.FromArgb(150, 160, 175),
+            Font = new Font("Segoe UI", 8.5F, FontStyle.Regular)
+        };
+
+        _chkInvertVerticalScroll = new CheckBox
+        {
+            Text = "Reverse vertical scrolling direction (Invert 2-finger scroll in Standalone mode)",
+            Location = new Point(16, 88),
+            AutoSize = true,
+            Checked = _settings.InvertVerticalScroll,
+            Font = new Font("Segoe UI", 9F, FontStyle.Bold),
+            ForeColor = Color.FromArgb(235, 240, 245)
+        };
+        _chkInvertVerticalScroll.CheckedChanged += (s, e) => SaveCurrentSettings();
+
+        var lblScrollHelp = new Label
+        {
+            Text = "Default: Standard scrolling (finger down scrolls page down). Check to invert scroll direction (natural scrolling).\r\nNote: In Virtual PTP mode, configure scrolling direction natively in Windows Settings -> Touchpad.",
+            Location = new Point(16, 114),
+            Size = new Size(690, 30),
             ForeColor = Color.FromArgb(150, 160, 175),
             Font = new Font("Segoe UI", 8.5F, FontStyle.Regular)
         };
@@ -515,6 +536,8 @@ public sealed class LogWindowForm : Form
         grpSensitivity.Controls.Add(_lblSensitivity);
         grpSensitivity.Controls.Add(_trackSensitivity);
         grpSensitivity.Controls.Add(lblSensHelp);
+        grpSensitivity.Controls.Add(_chkInvertVerticalScroll);
+        grpSensitivity.Controls.Add(lblScrollHelp);
 
         // 6. Gesture Shortcuts (3 & 4-Finger Actions)
         var grpShortcuts = CreateSettingsCard("Customizable Gesture Shortcuts (3 & 4-Finger Actions)", 245);
@@ -771,6 +794,10 @@ public sealed class LogWindowForm : Form
         if (_trackSensitivity != null)
         {
             _settings.CursorSensitivity = Math.Round(_trackSensitivity.Value / 100.0, 2);
+        }
+        if (_chkInvertVerticalScroll != null)
+        {
+            _settings.InvertVerticalScroll = _chkInvertVerticalScroll.Checked;
         }
 
         if (_txtG3Click != null) _settings.Gesture3Click = _txtG3Click.Text.Trim();
