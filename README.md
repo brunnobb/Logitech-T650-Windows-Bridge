@@ -1,25 +1,51 @@
 # Logitech T650 Windows Precision Touchpad Bridge
 
+[![Release](https://img.shields.io/badge/Release-v1.1.9-blue.svg)](https://github.com/brunnobb/Logitech-T650-Windows-Bridge/releases)
 [![.NET 10](https://img.shields.io/badge/.NET-10.0-512BD4.svg)](https://dotnet.microsoft.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 The **Logitech T650 Bridge** modernizes the Logitech T650 Wireless Rechargeable Touchpad on Windows 10 and Windows 11. 
 
-While the T650 natively speaks Logitech's proprietary HID++ 2.0 protocol over the 2.4 GHz Unifying Receiver, Windows defaults to basic 2-button mouse emulation and relies on obsolete SetPoint software. This bridge unlocks the hardware's multi-touch sensor (up to 5 contact points) and connects it directly into modern Windows workflows.
+While the T650 natively speaks Logitech's proprietary HID++ 2.0 protocol over the 2.4 GHz Unifying Receiver, Windows defaults to basic 2-button mouse emulation and relies on obsolete SetPoint software. This bridge unlocks the hardware's raw multi-touch sensor (up to 5 contact points) and connects it directly into modern Windows workflows.
 
 ---
 
-## Unified Application Architecture
+## Operating Modes: Virtual PTP vs. Standalone
 
-The bridge is a single, unified high-performance application featuring:
+The bridge is a single, unified high-performance application featuring runtime mode selection:
 
-* **Flexible Integration Modes:** Configured directly in the Bridge Settings window:
-  - **Automatic (Recommended):** Uses the low-latency Named Pipe (`\\.\pipe\T650VirtualPtpPipe`) if the [VirtualPTP Driver](https://github.com/brunnobb/VirtualPTP) is installed, or falls back seamlessly to the standalone gesture engine.
-  - **PTP Driver:** Direct feed into Windows Touch Stack for native Windows Precision Touchpad gestures.
-  - **Standalone:** High-performance direct input synthesis via `SendInput`.
-* **Native UIPI Bypass (`uiAccess="true"`):** Built with `uiAccess="true"` and signed with an Authenticode certificate. When installed to `Program Files`, it grants native User Interface Privilege Isolation (UIPI) bypass, enabling smooth gestures over elevated Administrator applications (Task Manager, Registry Editor, Command Prompt) without UAC prompts.
-* **Custom Gesture Shortcuts:** Fully customize 3-finger and 4-finger gestures (taps, drags up/down/left/right) with any keyboard shortcut combination.
-* **Contact Debouncing & Sensitivity Tuning:** Built-in contact-stabilization buffer to eliminate contact count skew and customizable trackpad sensitivity.
+* **Virtual PTP Mode (Tier 2 Driver Injection):** Feeds raw multi-touch reports into the [VirtualPTP Driver](https://github.com/brunnobb/VirtualPTP) over a low-latency Named Pipe (`\\.\pipe\T650VirtualPtpPipe`), transforming the T650 into a native Windows Precision Touchpad.
+* **Standalone Mode (Tier 1 Direct Software Engine):** Synthesizes mouse pointer motion, scroll wheel ticks, and custom multi-touch gesture shortcuts directly via `SendInput`.
+* **Automatic Mode (Recommended):** Probes for the Virtual PTP driver. If present, it injects into Windows PTP; if the driver is not installed, it falls back seamlessly to Standalone mode without manual configuration.
+
+### Advantages & Disadvantages Comparison
+
+| Feature | Virtual PTP Mode (Tier 2 Driver) | Standalone Mode (Tier 1 Software) |
+| :--- | :--- | :--- |
+| **System Integration** | **100% Native Windows Precision Touchpad**.<br>Recognized by Windows as a built-in touchpad in `Settings -> Bluetooth & devices -> Touchpad`. | **Software Input Synthesis**.<br>Runs as a standalone background application using Windows `SendInput`. |
+| **Scrolling & Zoom** | **Fluid Touch Physics & Inertia**.<br>Pixel-smooth scrolling, momentum flicking, and native pinch-to-zoom in Edge, Chrome, Word, and Excel. | **Standard Wheel Simulation**.<br>Simulates smooth mouse wheel ticks. No native pinch-to-zoom. |
+| **OS Gesture Animations** | **Fluid Interactive Animations**.<br>Virtual desktop sliding tracks finger position 1:1 in real time; Task View opens proportionally to swipe motion. | **Shortcut Triggered**.<br>Fires keyboard shortcut chords (`Ctrl+Win+Left/Right`, `Win+Tab`) upon completing a swipe. |
+| **Shortcut Customization** | **Fixed by Windows**.<br>Gestures are configured via Microsoft's presets in Windows Settings. | **Fully Customizable**.<br>Any 3-finger or 4-finger swipe or tap can be bound to any custom key combination (or left empty). |
+| **Driver Installation** | **Requires Driver Installation**.<br>Requires installing the Virtual PTP Driver package (`VirtualPtpDriver-Setup.msi`). | **Zero Driver Installation**.<br>Only needs `T650Bridge-Setup.msi`. |
+| **Windows Test-Signing** | **Requires Test-Signing (`testsigning on`)**.<br>Because the virtual driver is test-signed with a self-signed certificate. | **Works on Stock Windows**.<br>Zero driver signing constraints; works with Secure Boot enabled. |
+| **Admin Windows Support** | **Native Windows Touch Stack**.<br>Windows touch subsystem natively interacts with all windows. | **UIAccess UIPI Bypass**.<br>Bridge executable is built with `uiAccess="true"` and Authenticode-signed, bypassing UIPI across elevated Administrator windows without UAC prompts. |
+
+---
+
+## Settings & Features Comparison Matrix
+
+When running the Bridge, certain settings affect the raw hardware feed (impacting both modes), while others only apply to the internal Standalone gesture engine because Windows takes over those functions in Virtual PTP mode:
+
+| Feature / Setting in Bridge | Affects Virtual PTP Mode? | Affects Standalone Mode? | How it is Controlled in Virtual PTP Mode |
+| :--- | :---: | :---: | :--- |
+| **Multi-Touch Landing Debounce** (`DebounceEnabled`, `LandingDebounceMs`) | **YES** | **YES** | **Bridge Engine:** Buffers initial touchdown for 15–40 ms so multi-finger contacts arrive together before Windows gesture recognizer sees them. |
+| **Suppress Landing Confidence** (`SuppressLandingConfidence`) | **YES (Crucial)** | *Internal* | **Microsoft PTP Specification:** Injects `Confidence = 0` during initial touchdown so Windows won't trigger premature Start menu or Search taps before multi-finger swipes. |
+| **Cursor Speed / Sensitivity** (`CursorSensitivity`) | **NO** | **YES** | **Controlled by Windows:**<br>`Windows Settings -> Bluetooth & devices -> Touchpad -> Cursor speed`. The driver passes raw high-resolution coordinates directly to Windows. |
+| **Tap to Drag** (`TapToDragEnabled`) | **NO** | **YES** | **Controlled by Windows:**<br>`Windows Settings -> Bluetooth & devices -> Touchpad -> Taps -> "Tap twice and drag to multi-select"`. |
+| **Double Click Timeout** (`DoubleClickTimeoutMs`) | **NO** | **YES** | **Controlled by Windows:**<br>`Control Panel -> Mouse -> Buttons -> Double-Click Speed`. |
+| **Custom Gesture Shortcuts** (3 & 4-finger swipes & clicks) | **NO** | **YES** | **Controlled by Windows:**<br>`Windows Settings -> Bluetooth & devices -> Touchpad -> Three-finger / Four-finger gestures`. |
+| **Integration Mode** (`Automatic / Standalone / PtpDriver`) | **YES** | **YES** | Switches Bridge between feeding the PTP Named Pipe (`\\.\pipe\T650VirtualPtpPipe`) vs the internal C# engine. |
+| **Diagnostic Logging & System Tray** (`LogTouchFrames`, autostart, etc.) | **YES** | **YES** | Manages diagnostics, frame inspection, and background operation. |
 
 ---
 
@@ -97,11 +123,11 @@ pwsh -File "Build-All.ps1"
 ### Version Bumping
 To bump version across the project file and WiX installer:
 ```powershell
-pwsh -File "Bump-Version.ps1" -NewVersion "1.1.8"
+pwsh -File "Bump-Version.ps1" -NewVersion "1.1.9"
 ```
 
 Generated artifacts in `Dist/`:
-* `T650Bridge-Setup-v<Version>.msi` (and `T650Bridge-Setup.msi`)
+* `T650Bridge-Setup-v1.1.9.msi` (and `T650Bridge-Setup.msi`)
 * `SHA256SUMS.txt`
 
 ---
@@ -129,4 +155,3 @@ The installer configures Windows Startup via `HKCU\Software\Microsoft\Windows\Cu
 ## License
 
 MIT License. See [LICENSE](LICENSE) for details.
-
